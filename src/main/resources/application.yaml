@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: trade-engine
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/trade_engine
+    username: postgres
+    password: 123456
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 30000
+      pool-name: TradingHikariPool
+      max-lifetime: 1800000
+      connection-timeout: 20000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        show_sql: false
+
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql: TRACE
