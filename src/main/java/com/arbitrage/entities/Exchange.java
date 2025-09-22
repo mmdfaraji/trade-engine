@@ -19,8 +19,12 @@ import lombok.Setter;
 public class Exchange extends BaseEntity {
 
   private String name;
-  private String apiUrl;
-  private String wsUrl;
+
+  private String publicApiUrl;
+  private String publicWsUrl;
+
+  private String privateApiUrl;
+  private String privateWsUrl;
 
   @Enumerated(EnumType.STRING)
   private ExchangeStatus status;
