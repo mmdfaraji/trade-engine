@@ -29,3 +29,13 @@ logging:
     root: INFO
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql: TRACE
+
+app:
+  nats:
+    url: nats://localhost:4222
+    subject: signal
+    dlqSubject: signal.dlq
+    stream: SIGNAL_STREAM
+    durable: signal_consumer
+    fetchBatch: 50
+    fetchWaitMs: 1000
