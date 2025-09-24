@@ -1,7 +1,9 @@
 package com.arbitrage.consumer;
 
 import com.arbitrage.dto.SignalMessageDto;
-import com.arbitrage.service.api.SignalService;
+import com.arbitrage.dto.processor.ProcessResult;
+import com.arbitrage.enums.AckAction;
+import com.arbitrage.service.api.SignalProcessor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.*;
 import jakarta.annotation.PostConstruct;
@@ -21,11 +23,8 @@ public class SignalConsumerService {
 
   private final Connection connection;
   private final JetStream js;
-  private JetStreamSubscription sub;
-
-  private final SignalService signalService;
-
-  private final ObjectMapper mapper = new ObjectMapper();
+  private final ObjectMapper mapper;
+  private final SignalProcessor processor;
 
   @Value("${app.nats.subject}")
   private String subject;
@@ -36,84 +35,123 @@ public class SignalConsumerService {
   @Value("${app.nats.durable}")
   private String durable;
 
-  @Value("${app.nats.dlqSubject}")
-  private String dlqSubject;
-
   @Value("${app.nats.fetchBatch:50}")
   private int fetchBatch;
 
   @Value("${app.nats.fetchWaitMs:1000}")
   private long fetchWaitMs;
 
+  @Value("${app.nats.dlqSubject:}")
+  private String dlqSubject;
+
+  private JetStreamSubscription sub;
+
   @PostConstruct
   public void subscribe() throws Exception {
-    // Durable pull subscription
     PullSubscribeOptions pso =
         PullSubscribeOptions.builder().stream(stream).durable(durable).build();
 
     this.sub = js.subscribe(subject, pso);
     log.info(
-        "JetStream pull subscription created: stream={}, durable={}, subject={}",
+        "JetStream pull subscription is ready: stream={}, durable={}, subject={}",
         stream,
         durable,
         subject);
   }
 
-  /**
-   * Poll in batches (fixed delay). You can also use a separate executor. If throughput is high,
-   * increase fetchBatch / reduce delay / parallelize processing.
-   */
   @Scheduled(fixedDelay = 300)
   public void poll() {
     if (sub == null) return;
-
     try {
       List<Message> batch = sub.fetch(fetchBatch, Duration.ofMillis(fetchWaitMs));
-      if (batch == null || batch.isEmpty()) {
-        return;
-      }
+      if (batch == null || batch.isEmpty()) return;
+
       for (Message m : batch) {
-        processAndAck(m);
+        handleMessage(m);
       }
     } catch (Exception e) {
       log.error("Polling error", e);
     }
   }
 
-  private void processAndAck(Message m) {
-    String json = new String(m.getData(), StandardCharsets.UTF_8);
+  private void handleMessage(Message m) {
+    final String body = new String(m.getData(), StandardCharsets.UTF_8);
     try {
-      SignalMessageDto dto = mapper.readValue(json, SignalMessageDto.class);
-      Long id = signalService.saveSignal(dto);
-      m.ack(); // ack only on success
-      log.info("Processed signal id={} seq={}", id, metaSeq(m));
-    } catch (Exception e) {
-      log.error(
-          "Process failed, will not ack (message will be redelivered): {}", e.getMessage(), e);
-      publishToDLQ(json, e);
-      // No ack -> redelivery (consider term / max-deliver in consumer config if needed)
+      // Parse the inbound JSON into our DTOs (case-insensitive per Jackson config)
+      SignalMessageDto dto = mapper.readValue(body, SignalMessageDto.class);
+
+      // Process through the business pipeline
+      ProcessResult result = processor.process(dto);
+
+      // Log a concise outcome line
+      log.info(
+          "Signal processed: decision={}, ack={}, externalId={}, signalId={}",
+          result.getStatus(),
+          result.getAckAction(),
+          dto.getSignalId(),
+          result.getSignalId().orElse(null));
+
+      // Map to JetStream ack semantic
+      applyAck(m, result.getAckAction(), dto);
+
+    } catch (Exception ex) {
+      // Parsing or unexpected internal error -> choose policy:
+      // We publish to DLQ and TERM to prevent poison-message loop.
+      log.error("Fatal processing error, TERM & DLQ. payload={}", body, ex);
+      publishToDLQ(body, ex);
+      safeTerm(m);
     }
   }
 
-  private String metaSeq(Message m) {
+  private void applyAck(Message m, AckAction action, SignalMessageDto dto) {
     try {
-      return m.metaData() != null ? String.valueOf(m.metaData().streamSequence()) : "n/a";
+      switch (action) {
+        case ACK:
+          m.ack();
+          log.debug("Acked message; externalId={}", dto.getSignalId());
+          break;
+        case NO_ACK:
+          // Do not ack. Let ackWait expire for redelivery.
+          log.warn("NoAck (will redeliver after ackWait). externalId={}", dto.getSignalId());
+          break;
+        case NAK:
+          // If you prefer immediate redelivery (be cautious about tight loops)
+          m.nak();
+          log.warn("Nak issued (immediate redelivery). externalId={}", dto.getSignalId());
+          break;
+        case TERM:
+          m.term();
+          log.warn("Terminated message. externalId={}", dto.getSignalId());
+          break;
+        default:
+          break;
+      }
+    } catch (Exception e) {
+      log.error("Ack operation failed ({}). externalId={}", action, dto.getSignalId(), e);
+    }
+  }
+
+  private void safeTerm(Message m) {
+    try {
+      m.term();
     } catch (Exception ignore) {
-      return "n/a";
     }
   }
 
   private void publishToDLQ(String json, Exception e) {
-    if (dlqSubject == null || dlqSubject.isBlank()) return;
+    if (dlqSubject == null || dlqSubject.isBlank()) {
+      log.warn("DLQ subject not configured; skipping DLQ publish.");
+      return;
+    }
     try {
-      String payload = "{\"error\":\"" + esc(e.getMessage()) + "\",\"original\":" + json + "}";
+      String payload = "{\"error\":\"" + escape(e.getMessage()) + "\",\"original\":" + json + "}";
       connection.publish(dlqSubject, payload.getBytes(StandardCharsets.UTF_8));
     } catch (Exception ex) {
-      log.error("DLQ publish failed: {}", ex.getMessage(), ex);
+      log.error("DLQ publish failed", ex);
     }
   }
 
-  private String esc(String s) {
+  private String escape(String s) {
     if (s == null) return "";
     return s.replace("\\", "\\\\").replace("\"", "\\\"");
   }
