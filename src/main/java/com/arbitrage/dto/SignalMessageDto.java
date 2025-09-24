@@ -1,20 +1,30 @@
 package com.arbitrage.dto;
 
-import com.arbitrage.enums.SignalStatus;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import lombok.*;
 
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
+@Data
 @Builder
+@AllArgsConstructor
+@NoArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class SignalMessageDto {
+
+  @JsonProperty("signal_id")
+  private String signalId;
+
+  @JsonProperty("created_at")
+  private Instant createdAt;
+
+  @JsonProperty("ttl_ms")
   private Long ttlMs;
-  private SignalStatus status;
-  private String source;
-  private String constraints; // raw JSON or text
-  private BigDecimal expectedPnl;
+
   private List<SignalLegDto> legs;
+  private ConstraintsDto constraints;
+  private String source;
+  private BigDecimal expectedPnl;
 }

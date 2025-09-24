@@ -39,3 +39,7 @@ app:
     durable: signal_consumer
     fetchBatch: 50
     fetchWaitMs: 1000
+
+    # New: consumer tuning
+    ackWaitSeconds: 30        # time after which server redelivers if not acked
+    maxDeliver: 5

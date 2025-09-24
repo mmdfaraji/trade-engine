@@ -5,5 +5,5 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface PairRepository extends JpaRepository<Pair, Long> {
-  Optional<Pair> findBySymbol(String symbol);
+  Optional<Pair> findBySymbolEqualsIgnoreCase(String symbol);
 }

@@ -7,11 +7,15 @@ import com.arbitrage.entities.Pair;
 import com.arbitrage.entities.Signal;
 import com.arbitrage.entities.SignalLeg;
 import com.arbitrage.enums.SignalStatus;
-import com.arbitrage.respository.ExchangeRepository;
-import com.arbitrage.respository.PairRepository;
 import com.arbitrage.respository.SignalLegRepository;
 import com.arbitrage.respository.SignalRepository;
+import com.arbitrage.service.api.ExchangeService;
+import com.arbitrage.service.api.PairService;
 import com.arbitrage.service.api.SignalService;
+import com.arbitrage.service.mapping.SignalAssembler;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -23,53 +27,92 @@ import org.springframework.transaction.annotation.Transactional;
 public class SignalServiceImpl implements SignalService {
   private final SignalRepository signalRepository;
   private final SignalLegRepository signalLegRepository;
-  private final ExchangeRepository exchangeRepository;
-  private final PairRepository pairRepository;
+  private final ExchangeService exchangeService;
+  private final PairService pairService;
+  private final ObjectMapper objectMapper;
 
-  @Transactional
   @Override
+  @Transactional
   public Long saveSignal(SignalMessageDto dto) {
-    Signal signal =
-        Signal.builder()
-            .ttlMs(dto.getTtlMs())
-            .status(dto.getStatus() != null ? dto.getStatus() : SignalStatus.RECEIVED)
-            .source(dto.getSource())
-            .constraints(dto.getConstraints())
-            .expectedPnl(dto.getExpectedPnl())
-            .build();
-    signal = signalRepository.save(signal);
-    log.info("signal saved :{}", signal);
-
-    if (dto.getLegs() != null) {
-      for (SignalLegDto legDTO : dto.getLegs()) {
-        Exchange exchange =
-            exchangeRepository
-                .findByName(legDTO.getExchangeName())
-                .orElseThrow(
-                    () ->
-                        new IllegalArgumentException(
-                            "Exchange not found: " + legDTO.getExchangeName()));
-        Pair pair =
-            pairRepository
-                .findBySymbol(legDTO.getPairSymbol())
-                .orElseThrow(
-                    () ->
-                        new IllegalArgumentException("Pair not found: " + legDTO.getPairSymbol()));
-
-        SignalLeg leg =
-            SignalLeg.builder()
-                .signal(signal)
-                .exchange(exchange)
-                .pair(pair)
-                .side(legDTO.getSide())
-                .price(legDTO.getPrice())
-                .qty(legDTO.getQty())
-                .tif(legDTO.getTif())
-                .desiredRole(legDTO.getDesiredRole())
-                .build();
-        signalLegRepository.save(leg);
+    if (dto.getSignalId() != null) {
+      var existing = signalRepository.findByExternalId(dto.getSignalId());
+      if (existing.isPresent()) {
+        Signal s = existing.get();
+        log.info(
+            "Signal already exists (idempotent): externalId={}, id={}, status={}",
+            dto.getSignalId(),
+            s.getId(),
+            s.getStatus());
+        return s.getId();
       }
     }
+
+    String constraintsJson = serializeConstraints(dto);
+    Signal signal = SignalAssembler.toSignalEntity(dto, constraintsJson);
+    signal = signalRepository.save(signal);
+
+    if (dto.getLegs() != null) {
+      int i = 0;
+      for (SignalLegDto legDto : dto.getLegs()) {
+        Exchange exchange = exchangeService.resolveExchangeByName(legDto.getExchangeCode());
+        Pair pair = pairService.resolvePairBySymbol(legDto.getMarket());
+
+        SignalLeg leg = SignalAssembler.toLegEntity(legDto, signal, exchange, pair);
+        signalLegRepository.save(leg);
+
+        log.info(
+            "Saved leg#{} for signalId={} -> exchange={}, market={}, side={}, price={}, qty={}, tif={}",
+            i++,
+            signal.getId(),
+            legDto.getExchangeCode(),
+            legDto.getMarket(),
+            legDto.getSide(),
+            legDto.getPrice(),
+            legDto.getQty(),
+            legDto.getTimeInForce());
+      }
+    }
+
+    log.info(
+        "Saved signal: id={}, externalId={}, ttlMs={}, createdAt={}, legsCount={}, source={}",
+        signal.getId(),
+        dto.getSignalId(),
+        dto.getTtlMs(),
+        dto.getCreatedAt(),
+        dto.getLegs() == null ? 0 : dto.getLegs().size(),
+        dto.getSource());
+
     return signal.getId();
+  }
+
+  @Override
+  @Transactional
+  public void updateStatus(Long signalId, String newStatus) {
+    Signal signal =
+        signalRepository
+            .findById(signalId)
+            .orElseThrow(() -> new IllegalArgumentException("Signal not found: " + signalId));
+    try {
+      SignalStatus st = SignalStatus.valueOf(newStatus.toUpperCase(Locale.ROOT));
+      signal.setStatus(st);
+      signalRepository.save(signal);
+      log.info("Signal status updated: id={}, status={}", signalId, st);
+    } catch (IllegalArgumentException iae) {
+      log.warn(
+          "Invalid status value provided for update: id={}, newStatus={}", signalId, newStatus);
+      throw iae;
+    }
+  }
+
+  private String serializeConstraints(SignalMessageDto dto) {
+    try {
+      if (dto.getConstraints() == null) return null;
+      byte[] json = objectMapper.writeValueAsBytes(dto.getConstraints());
+      return new String(json, StandardCharsets.UTF_8);
+    } catch (Exception e) {
+      log.warn(
+          "Constraints serialization failed, storing null. externalId={}", dto.getSignalId(), e);
+      return null;
+    }
   }
 }

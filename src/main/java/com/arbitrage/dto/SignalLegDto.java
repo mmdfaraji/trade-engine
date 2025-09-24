@@ -1,18 +1,37 @@
 package com.arbitrage.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import lombok.*;
 
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Builder
+@AllArgsConstructor
+@NoArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class SignalLegDto {
-  private String exchangeName; // lookup key for Exchange
-  private String pairSymbol; // lookup key for Pair
+
+  // Incoming: "Exchange" (e.g. "ramzinex")
+  @JsonProperty("Exchange")
+  private String exchangeCode;
+
+  // Incoming: "market" (e.g. "USDT/IRR")
+  @JsonProperty("market")
+  private String market;
+
+  // Incoming: "Side" (e.g. "buy"|"sell")
+  @JsonProperty("Side")
   private String side;
+
+  @JsonProperty("Price")
   private BigDecimal price;
+
+  @JsonProperty("Qty")
   private BigDecimal qty;
-  private String tif;
+
+  @JsonProperty("time_in_force")
+  private String timeInForce;
+
   private String desiredRole;
 }
