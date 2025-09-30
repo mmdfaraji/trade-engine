@@ -11,7 +11,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuperBuilder
-public class Pair extends BaseEntity {
+public class Pair extends LongIdEntity {
 
   @ManyToOne(fetch = FetchType.LAZY)
   private Currency baseCurrency;

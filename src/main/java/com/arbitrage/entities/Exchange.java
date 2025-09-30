@@ -16,7 +16,7 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class Exchange extends BaseEntity {
+public class Exchange extends LongIdEntity {
 
   private String name;
 

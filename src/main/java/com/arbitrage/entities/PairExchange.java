@@ -13,7 +13,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuperBuilder
-public class PairExchange extends BaseEntity {
+public class PairExchange extends LongIdEntity {
 
   @ManyToOne(fetch = FetchType.LAZY)
   private Exchange exchange;

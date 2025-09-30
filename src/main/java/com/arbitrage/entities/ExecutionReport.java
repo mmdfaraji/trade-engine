@@ -12,7 +12,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuperBuilder
-public class ExecutionReport extends BaseEntity {
+public class ExecutionReport extends LongIdEntity {
 
   @ManyToOne(fetch = FetchType.LAZY)
   private Signal signal;

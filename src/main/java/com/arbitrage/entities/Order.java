@@ -14,7 +14,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuperBuilder
-public class Order extends BaseEntity {
+public class Order extends LongIdEntity {
 
   @ManyToOne(fetch = FetchType.LAZY)
   private Signal signal;
