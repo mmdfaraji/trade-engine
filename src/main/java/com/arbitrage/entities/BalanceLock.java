@@ -13,7 +13,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuperBuilder
-public class BalanceLock extends BaseEntity {
+public class BalanceLock extends UUIDEntity {
 
   @ManyToOne(fetch = FetchType.LAZY)
   private ExchangeAccount exchangeAccount;

@@ -11,7 +11,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuperBuilder
-public class Currency extends BaseEntity {
+public class Currency extends LongIdEntity {
 
   private String symbol;
   private String name;

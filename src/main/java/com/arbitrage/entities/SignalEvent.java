@@ -11,7 +11,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuperBuilder
-public class SignalEvent extends BaseEntity {
+public class SignalEvent extends LongIdEntity {
 
   @ManyToOne(fetch = FetchType.LAZY)
   private Signal signal;

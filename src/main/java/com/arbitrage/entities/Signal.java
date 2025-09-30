@@ -13,7 +13,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuperBuilder
-public class Signal extends BaseEntity {
+public class Signal extends UUIDEntity {
 
   private Long ttlMs;
 

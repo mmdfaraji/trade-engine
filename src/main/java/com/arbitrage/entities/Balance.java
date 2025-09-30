@@ -12,7 +12,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuperBuilder
-public class Balance extends BaseEntity {
+public class Balance extends LongIdEntity {
 
   @ManyToOne(fetch = FetchType.LAZY)
   private ExchangeAccount exchangeAccount;

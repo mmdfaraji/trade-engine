@@ -11,7 +11,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuperBuilder
-public class OrderEvent extends BaseEntity {
+public class OrderEvent extends LongIdEntity {
 
   @ManyToOne(fetch = FetchType.LAZY)
   private Order order;

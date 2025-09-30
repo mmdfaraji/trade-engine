@@ -13,7 +13,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuperBuilder
-public class OrderFill extends BaseEntity {
+public class OrderFill extends LongIdEntity {
 
   @ManyToOne(fetch = FetchType.LAZY)
   private Order order;

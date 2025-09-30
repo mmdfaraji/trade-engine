@@ -13,7 +13,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuperBuilder
-public class HedgeAction extends BaseEntity {
+public class HedgeAction extends UUIDEntity {
 
   @ManyToOne(fetch = FetchType.LAZY)
   private Signal signal;

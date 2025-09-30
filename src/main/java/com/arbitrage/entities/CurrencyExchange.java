@@ -11,7 +11,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuperBuilder
-public class CurrencyExchange extends BaseEntity {
+public class CurrencyExchange extends LongIdEntity {
 
   @ManyToOne(fetch = FetchType.LAZY)
   private Exchange exchange;
