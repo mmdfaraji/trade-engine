@@ -3,7 +3,7 @@ package com.arbitrage.dto.processor;
 import com.arbitrage.enums.AckAction;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -20,26 +20,26 @@ public class ProcessResult {
 
   private final Status status;
   private final AckAction ackAction; // <--- NEW: explicit ack mapping
-  private final Optional<Long> signalId;
+  private final UUID signalId;
   private final List<Rejection> rejections;
 
   // Optional metadata for logs/metrics
   private final Map<String, Object> meta;
 
-  public static ProcessResult accepted(Long id) {
+  public static ProcessResult accepted(UUID id) {
     return ProcessResult.builder()
         .status(Status.ACCEPTED)
         .ackAction(AckAction.ACK)
-        .signalId(Optional.ofNullable(id))
+        .signalId(id)
         .rejections(List.of())
         .build();
   }
 
-  public static ProcessResult rejected(Long id, List<Rejection> reasons) {
+  public static ProcessResult rejected(UUID id, List<Rejection> reasons) {
     return ProcessResult.builder()
         .status(Status.REJECTED)
         .ackAction(AckAction.ACK) // logical failure -> ack
-        .signalId(Optional.ofNullable(id))
+        .signalId(id)
         .rejections(reasons)
         .build();
   }
@@ -48,7 +48,7 @@ public class ProcessResult {
     return ProcessResult.builder()
         .status(Status.RETRY)
         .ackAction(AckAction.NO_ACK) // let ackWait trigger redelivery
-        .signalId(Optional.empty())
+        .signalId(null)
         .rejections(reasons)
         .build();
   }

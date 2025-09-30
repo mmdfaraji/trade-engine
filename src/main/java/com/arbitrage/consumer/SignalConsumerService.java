@@ -89,7 +89,7 @@ public class SignalConsumerService {
           result.getStatus(),
           result.getAckAction(),
           dto.getSignalId(),
-          result.getSignalId().orElse(null));
+          result.getSignalId());
 
       // Map to JetStream ack semantic
       applyAck(m, result.getAckAction(), dto);

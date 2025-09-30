@@ -16,6 +16,7 @@ import com.arbitrage.service.mapping.SignalAssembler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,7 +34,7 @@ public class SignalServiceImpl implements SignalService {
 
   @Override
   @Transactional
-  public Long saveSignal(SignalMessageDto dto) {
+  public UUID saveSignal(SignalMessageDto dto) {
     if (dto.getSignalId() != null) {
       var existing = signalRepository.findByExternalId(dto.getSignalId());
       if (existing.isPresent()) {

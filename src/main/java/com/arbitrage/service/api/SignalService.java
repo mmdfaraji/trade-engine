@@ -1,9 +1,10 @@
 package com.arbitrage.service.api;
 
 import com.arbitrage.dto.SignalMessageDto;
+import java.util.UUID;
 
 public interface SignalService {
-  Long saveSignal(SignalMessageDto dto);
+  UUID saveSignal(SignalMessageDto dto);
 
   void updateStatus(Long signalId, String newStatus);
 }

@@ -7,6 +7,7 @@ import com.arbitrage.enums.RejectCode;
 import com.arbitrage.enums.ValidationPhase;
 import com.arbitrage.service.api.SignalProcessor;
 import com.arbitrage.service.api.SignalService;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,7 +21,7 @@ public class DefaultSignalProcessor implements SignalProcessor {
   @Override
   public ProcessResult process(SignalMessageDto dto) {
     try {
-      Long id = signalService.saveSignal(dto);
+      UUID id = signalService.saveSignal(dto);
       int legsCount = dto.getLegs() == null ? 0 : dto.getLegs().size();
       log.info(
           "Phase-0 persisted: signalId={}, externalId={}, legsCount={}",
