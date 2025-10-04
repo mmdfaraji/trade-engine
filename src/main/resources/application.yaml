@@ -24,6 +24,18 @@ spring:
         format_sql: true
         show_sql: false
 
+app:
+  exchanges:
+    nobitex:
+      name: NOBITEX
+      base-url: https://apiv2.nobitex.ir
+      token: 47fdebe4a10cfbf45de949c3690bb73f0346414b
+
+  http:
+    timeout:
+      connect: 2s
+      read: 5s
+
 logging:
   level:
     root: INFO
