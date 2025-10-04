@@ -88,16 +88,15 @@ public class SignalServiceImpl implements SignalService {
 
   @Override
   @Transactional
-  public void updateStatus(Long signalId, String newStatus) {
+  public void updateStatus(UUID signalId, SignalStatus newStatus) {
     Signal signal =
         signalRepository
             .findById(signalId)
             .orElseThrow(() -> new IllegalArgumentException("Signal not found: " + signalId));
     try {
-      SignalStatus st = SignalStatus.valueOf(newStatus.toUpperCase(Locale.ROOT));
-      signal.setStatus(st);
+      signal.setStatus(newStatus);
       signalRepository.save(signal);
-      log.info("Signal status updated: id={}, status={}", signalId, st);
+      log.info("Signal status updated: id={}, status={}", signalId, newStatus);
     } catch (IllegalArgumentException iae) {
       log.warn(
           "Invalid status value provided for update: id={}, newStatus={}", signalId, newStatus);

@@ -19,9 +19,6 @@ public class Signal extends UUIDEntity {
   @Column(name = "external_id")
   private String externalId;
 
-  @Column(name = "external_id")
-  private String externalId;
-
   private Long ttlMs;
 
   @Enumerated(EnumType.STRING)

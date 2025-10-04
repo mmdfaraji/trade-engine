@@ -167,4 +167,20 @@ public final class Rejections {
         .detail("exceptionClass", exceptionClass)
         .build();
   }
+
+
+  public static Rejection latencyExceeded(Clock clock, long ageMs, long maxLatencyMs, Instant createdAt, Instant now) {
+    return Rejection.builder()
+            .code(RejectCode.STALE)
+            .message("Latency is above the configured maximum")
+            .phase(ValidationPhase.PHASE1_FRESHNESS)
+            .validator("FreshnessValidator")
+            .occurredAt(clock.instant())
+            .detail("ageMs", ageMs)
+            .detail("maxLatencyMs", maxLatencyMs)
+            .detail("createdAt", createdAt)
+            .detail("now", now)
+            .build();
+  }
+
 }

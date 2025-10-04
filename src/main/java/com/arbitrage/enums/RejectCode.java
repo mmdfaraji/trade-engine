@@ -11,5 +11,6 @@ public enum RejectCode {
   RISK_LIMIT, // portfolio / per-exchange caps / circuit breaker
   TRANSIENT_UPSTREAM, // temporary dependency issue (market data / fees / etc.)
   INTERNAL_ERROR, // unexpected internal error
-  REFERENCE_NOT_FOUND
+  REFERENCE_NOT_FOUND,
+  INVALID_INPUT
 }
