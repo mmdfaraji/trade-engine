@@ -1,6 +1,7 @@
 package com.arbitrage.service.market;
 
 import com.arbitrage.entities.CurrencyExchange;
+import com.arbitrage.enums.OrderSide;
 import com.arbitrage.model.OrderAck;
 import com.arbitrage.model.OrderRequest;
 import com.arbitrage.model.Quote;
@@ -11,10 +12,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.annotation.Nullable;
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -44,85 +43,13 @@ public class NobitexMarketClient implements ExchangeMarketClient {
   @Qualifier("nobitexPrivateRestClient")
   private final RestClient nobitexPrivateRestClient;
 
-  // ---------- DTO های پاسخ عمومی ----------
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  private record OrdersListResponse(
-      @JsonProperty("status") String status, @JsonProperty("orders") List<OrderEntry> orders) {}
-
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  private record OrderEntry(@JsonProperty("price") String price) {}
+  private static final String PATH_STATS = "/market/stats";
+  private static final String PATH_BALANCE = "/users/wallets/balance";
+  private static final String PATH_ORDER_ADD = "/market/orders/add";
+  private static final String PATH_ORDER_UPDATE = "/market/orders/update-status";
+  private static final Pattern DIGITS_ONLY = Pattern.compile("\\d+");
 
   private record BalanceResponse(String balance, String status) {}
-
-  @Override
-  public BigDecimal getWalletBalance(String currency) {
-    String ccy = currency.toLowerCase(Locale.ROOT);
-
-    try {
-      MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-      form.add("currency", ccy);
-
-      BalanceResponse resp =
-          nobitexPrivateRestClient
-              .post()
-              .uri("/users/wallets/balance")
-              .contentType(MediaType.APPLICATION_FORM_URLENCODED) // 👈 فرم‌اِنکود
-              .accept(MediaType.APPLICATION_JSON)
-              .body(form)
-              .retrieve()
-              .body(BalanceResponse.class);
-
-      if (resp == null || resp.balance() == null || resp.status() == null) {
-        throw new IllegalStateException("Empty response from Nobitex balance API");
-      }
-
-      return new BigDecimal(resp.balance());
-
-    } catch (RestClientResponseException httpEx) {
-      log.error(
-          "Nobitex balance HTTP {}: {}",
-          httpEx.getRawStatusCode(),
-          httpEx.getResponseBodyAsString());
-      throw httpEx;
-    } catch (Exception ex) {
-      log.error("Nobitex balance error for {}: {}", ccy, ex.toString());
-      throw new IllegalStateException("Failed to fetch wallet balance for " + ccy, ex);
-    }
-  }
-
-  @Override
-  public List<Quote> getQuotes() {
-    var entries = currencyExchangeRepo.findByExchange_Name(exchangeName);
-    if (entries == null || entries.isEmpty()) {
-      log.info("No symbols for exchange '{}'", exchangeName);
-      return List.of();
-    }
-
-    long ts = Instant.now().toEpochMilli();
-    List<Quote> out = new ArrayList<>(entries.size());
-
-    for (CurrencyExchange cx : entries) {
-      var parts = symbolParts(cx);
-      String base = parts.base();
-      String quote = parts.quote();
-
-      BigDecimal ask = bestPrice(base, quote, Side.SELL); // کمترین فروشنده
-      BigDecimal bid = bestPrice(base, quote, Side.BUY); // بیشترین خریدار
-
-      if (ask != null && bid != null) {
-        out.add(new Quote(base + "-" + quote, bid, ask, ts));
-      } else {
-        log.warn("Skip {}-{}: ask={} bid={}", base, quote, ask, bid);
-      }
-    }
-
-    return out;
-  }
-
-  private enum Side {
-    BUY,
-    SELL
-  }
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   private record StatsResponse(
@@ -135,16 +62,199 @@ public class NobitexMarketClient implements ExchangeMarketClient {
       @JsonProperty("bestBuy") String bestBuy // bid
       ) {}
 
-  private @Nullable BigDecimal bestPrice(String base, String quote, Side side) {
+  private record SymbolParts(String base, String quote) {}
+
+  @Override
+  public BigDecimal getWalletBalance(String currency) {
+    final String ccy = requireNonBlankLower(currency, "currency");
     try {
-      StatsResponse resp =
+      MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+      form.add("currency", ccy);
+
+      BalanceResponse resp =
+          nobitexPrivateRestClient
+              .post()
+              .uri(PATH_BALANCE)
+              .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+              .accept(MediaType.APPLICATION_JSON)
+              .body(form)
+              .retrieve()
+              .body(BalanceResponse.class);
+
+      if (resp == null || resp.balance() == null || resp.status() == null) {
+        throw new IllegalStateException("Empty response from Nobitex balance API");
+      }
+      return new BigDecimal(resp.balance());
+
+    } catch (RestClientResponseException httpEx) {
+      log.error("Nobitex balance HTTP {}: {}", httpEx.getRawStatusCode(), safeBody(httpEx));
+      throw httpEx;
+    } catch (Exception ex) {
+      log.error("Nobitex balance error for {}: {}", ccy, ex.toString());
+      throw new IllegalStateException("Failed to fetch wallet balance for " + ccy, ex);
+    }
+  }
+
+  @Override
+  public List<Quote> getQuotes() {
+    final var entries = currencyExchangeRepo.findByExchange_Name(exchangeName);
+    if (entries == null || entries.isEmpty()) {
+      log.info("No symbols for exchange '{}'", exchangeName);
+      return List.of();
+    }
+
+    final long ts = Instant.now().toEpochMilli();
+    final List<Quote> out = new ArrayList<>(entries.size());
+
+    for (CurrencyExchange cx : entries) {
+      final var parts = symbolParts(cx);
+      final String base = parts.base();
+      final String quote = parts.quote();
+
+      final BigDecimal ask = bestPrice(base, quote, OrderSide.SELL); // lowest ask
+      final BigDecimal bid = bestPrice(base, quote, OrderSide.BUY); // highest bid
+
+      if (ask != null && bid != null) {
+        out.add(new Quote(base + "-" + quote, bid, ask, ts));
+      } else {
+        log.warn("Skip {}-{}: ask={} bid={}", base, quote, ask, bid);
+      }
+    }
+
+    return out;
+  }
+
+  @Override
+  public OrderAck submitOrder(OrderRequest orderRequest) {
+    // Validation & normalization
+    final String symbol = requireNonBlankLower(orderRequest.getSymbol(), "symbol");
+    final String side = requireNonBlankLower(orderRequest.getSide(), "side"); // buy | sell
+    final BigDecimal qty = requirePositive(orderRequest.getQty(), "qty");
+    final BigDecimal price = requirePositive(orderRequest.getPrice(), "price");
+
+    final String[] pair = symbol.split("[-_]");
+    if (pair.length != 2) throw new IllegalArgumentException("symbol must be like 'btc-usdt'");
+    final String srcCurrency = pair[0];
+    final String dstCurrency = pair[1];
+
+    final String clientOrderId = defaultClientOrderId(orderRequest);
+
+    try {
+      final MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+      form.add("type", side); // buy | sell
+      form.add("execution", "limit"); // limit (market => remove price & set execution=market)
+      form.add("srcCurrency", srcCurrency);
+      form.add("dstCurrency", dstCurrency);
+      form.add("amount", qty.toPlainString());
+      form.add("price", price.toPlainString());
+      form.add("clientOrderId", clientOrderId);
+
+      @SuppressWarnings("unchecked")
+      final Map<String, Object> resp =
+          nobitexPrivateRestClient
+              .post()
+              .uri(PATH_ORDER_ADD)
+              .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+              .accept(MediaType.APPLICATION_JSON)
+              .body(form)
+              .retrieve()
+              .body(Map.class);
+
+      final String exchangeOrderId = resp != null ? asString(resp.get("orderId")) : null;
+      final String status = resp != null ? resp.get("status").toString() : "unknown";
+
+      return new OrderAck(clientOrderId, exchangeOrderId, status);
+
+    } catch (RestClientResponseException http) {
+      log.error(
+          "HTTP {} placeOrder symbol={} body={}", http.getRawStatusCode(), symbol, safeBody(http));
+      throw http;
+    }
+  }
+
+  @Override
+  public boolean cancelOrder(String orderId) {
+    if (!StringUtils.hasText(orderId)) return false;
+    try {
+      final MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+      form.add("status", "canceled");
+
+      if (DIGITS_ONLY.matcher(orderId).matches()) {
+        form.add("order", orderId); // exchange order id (numeric)
+      } else {
+        form.add("clientOrderId", orderId); // client order id (string)
+      }
+
+      @SuppressWarnings("unchecked")
+      final Map<String, Object> resp =
+          nobitexPrivateRestClient
+              .post()
+              .uri(PATH_ORDER_UPDATE) // apiv2 absolute URL
+              .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+              .accept(MediaType.APPLICATION_JSON)
+              .body(form)
+              .retrieve()
+              .body(Map.class);
+
+      final String status = resp != null ? asString(resp.get("status")) : null;
+      final String updated = resp != null ? asString(resp.get("updatedStatus")) : null;
+
+      final boolean ok =
+          equalsIgnoreCase(status, "ok")
+              || equalsIgnoreCase(status, "canceled")
+              || equalsIgnoreCase(updated, "canceled");
+
+      if (!ok) {
+        log.warn(
+            "Cancel not confirmed. status={}, updatedStatus={}, code={}, message={}",
+            status,
+            updated,
+            asString(resp != null ? resp.get("code") : null),
+            asString(resp != null ? resp.get("message") : null));
+      }
+
+      return ok;
+    } catch (RestClientResponseException http) {
+      log.error(
+          "HTTP {} cancelOrder id={} body={}", http.getRawStatusCode(), orderId, safeBody(http));
+      return false;
+    } catch (Exception ex) {
+      log.error("Error cancelOrder id={}: {}", orderId, ex.toString());
+      return false;
+    }
+  }
+
+  /**
+   * اگر exchangeSymbol مثل "btc-usdt" ست بود، همان را می‌شکند؛ وگرنه از فیلدهای موجود entity
+   * استفاده می‌کند و به fallback می‌رود.
+   */
+  private SymbolParts symbolParts(CurrencyExchange cx) {
+    final String exSymbol = cx.getExchangeSymbol();
+    if (StringUtils.hasText(exSymbol) && exSymbol.contains("-")) {
+      final String[] sp = exSymbol.toLowerCase(Locale.ROOT).split("-");
+      if (sp.length == 2 && StringUtils.hasText(sp[0]) && StringUtils.hasText(sp[1])) {
+        return new SymbolParts(sp[0], sp[1]);
+      }
+    }
+
+    // Fallback: از currency به عنوان base و پیش‌فرض quote = usdt
+    // اگر پروژه‌ی شما field جدا برای quote دارد، همان را جایگزین کنید.
+    final String base = cx.getCurrency().getSymbol().toLowerCase(Locale.ROOT);
+    final String quote = "usdt";
+
+    return new SymbolParts(base, quote);
+  }
+
+  private @Nullable BigDecimal bestPrice(String base, String quote, OrderSide orderSide) {
+    try {
+      final StatsResponse resp =
           nobitexPublicRestClient
               .get()
               .uri(
                   (UriBuilder b) ->
-                      b.path("/market/stats")
-                          .queryParam("srcCurrency", base.toLowerCase())
-                          .queryParam("dstCurrency", quote.toLowerCase())
+                      b.path(PATH_STATS)
+                          .queryParam("srcCurrency", lower(base))
+                          .queryParam("dstCurrency", lower(quote))
                           .build())
               .retrieve()
               .body(StatsResponse.class);
@@ -154,11 +264,9 @@ public class NobitexMarketClient implements ExchangeMarketClient {
         return null;
       }
 
-      // key format: "btc-usdt" / "btc-rls" ...
-      String key = (base + "-" + quote).toLowerCase();
+      final String key = (base + "-" + quote).toLowerCase(Locale.ROOT);
       MarketStat s = resp.stats().get(key);
       if (s == null) {
-        // some backends may return uppercase keys; try a relaxed search
         s =
             resp.stats().entrySet().stream()
                 .filter(e -> e.getKey().equalsIgnoreCase(key))
@@ -171,11 +279,8 @@ public class NobitexMarketClient implements ExchangeMarketClient {
         }
       }
 
-      String priceStr = (side == Side.SELL) ? s.bestSell() : s.bestBuy();
-      if (priceStr == null || priceStr.isBlank()) {
-        return null;
-      }
-      return new BigDecimal(priceStr);
+      final String priceStr = (orderSide == OrderSide.SELL) ? s.bestSell() : s.bestBuy();
+      return StringUtils.hasText(priceStr) ? new BigDecimal(priceStr) : null;
 
     } catch (RestClientResponseException http) {
       log.error(
@@ -183,13 +288,18 @@ public class NobitexMarketClient implements ExchangeMarketClient {
           http.getRawStatusCode(),
           base,
           quote,
-          side,
+          orderSide,
           safeBody(http));
       return null;
     } catch (Exception ex) {
-      log.error("Error /market/stats {}-{} side={}: {}", base, quote, side, ex.toString());
+      log.error("Error /market/stats {}-{} side={}: {}", base, quote, orderSide, ex.toString());
       return null;
     }
+  }
+
+  private static String defaultClientOrderId(OrderRequest req) {
+    return (req.getSide() + "-" + req.getSymbol() + "-" + System.currentTimeMillis())
+        .toUpperCase(Locale.ROOT);
   }
 
   private static String safeBody(RestClientResponseException e) {
@@ -200,94 +310,29 @@ public class NobitexMarketClient implements ExchangeMarketClient {
     }
   }
 
-  @Override
-  public OrderAck submitOrder(OrderRequest orderRequest) {
-    try {
-      var body =
-          java.util.Map.<String, Object>of(
-              "type", "limit",
-              "side", orderRequest.getSide().toLowerCase(Locale.ROOT),
-              "symbol", orderRequest.getSymbol().toLowerCase(Locale.ROOT), // مثل "btc-usdt"
-              "price", orderRequest.getPrice(),
-              "quantity", orderRequest.getQty(),
-              "timeInForce", orderRequest.getTif());
-
-      var resp =
-          nobitexPrivateRestClient
-              .post()
-              .uri("/market/orders/add")
-              .contentType(MediaType.APPLICATION_JSON)
-              .body(body)
-              .retrieve()
-              .body(java.util.Map.class);
-
-      String clientOrderId =
-          resp != null ? (String) resp.getOrDefault("clientOrderId", null) : null;
-      String exchangeOrderId = resp != null ? (String) resp.getOrDefault("orderId", null) : null;
-      String status = resp != null ? (String) resp.getOrDefault("status", "unknown") : "unknown";
-
-      return new OrderAck(
-          clientOrderId != null ? clientOrderId : defaultClientOrderId(orderRequest),
-          exchangeOrderId,
-          status);
-
-    } catch (RestClientResponseException http) {
-      log.error(
-          "HTTP {} placeOrder symbol={} body={}",
-          http.getRawStatusCode(),
-          orderRequest.getSymbol(),
-          safeBody(http));
-      throw http;
-    }
+  private static String lower(String v) {
+    return v == null ? null : v.toLowerCase(Locale.ROOT);
   }
 
-  @Override
-  public boolean cancelOrder(String orderId) {
-    try {
-      var resp =
-          nobitexPrivateRestClient
-              .post()
-              .uri("/market/orders/cancel")
-              .contentType(MediaType.APPLICATION_JSON)
-              .body(java.util.Map.of("clientOrderId", orderId))
-              .retrieve()
-              .body(java.util.Map.class);
-
-      String status = resp != null ? (String) resp.getOrDefault("status", "unknown") : "unknown";
-      return "ok".equalsIgnoreCase(status) || "canceled".equalsIgnoreCase(status);
-    } catch (RestClientResponseException http) {
-      log.error(
-          "HTTP {} cancelOrder clientOrderId={} body={}",
-          http.getRawStatusCode(),
-          orderId,
-          safeBody(http));
-      return false;
-    } catch (Exception ex) {
-      log.error("Error cancelOrder clientOrderId={}: {}", orderId, ex.toString());
-      return false;
+  private static String requireNonBlankLower(String v, String field) {
+    if (!StringUtils.hasText(v)) {
+      throw new IllegalArgumentException(field + " must not be blank");
     }
+    return v.toLowerCase(Locale.ROOT);
   }
 
-  private record SymbolParts(String base, String quote) {}
-
-  /**
-   * اگر exchangeSymbol مثل "btc-usdt" ست بود، همان را می‌شکند؛ وگرنه از base/quote موجودیت استفاده
-   * می‌کند.
-   */
-  private SymbolParts symbolParts(CurrencyExchange cx) {
-    String exSymbol = cx.getExchangeSymbol();
-    if (StringUtils.hasText(exSymbol) && exSymbol.contains("-")) {
-      var sp = exSymbol.toLowerCase(Locale.ROOT).split("-");
-      if (sp.length == 2 && StringUtils.hasText(sp[0]) && StringUtils.hasText(sp[1])) {
-        return new SymbolParts(sp[0], sp[1]);
-      }
+  private static BigDecimal requirePositive(BigDecimal v, String field) {
+    if (v == null || v.signum() <= 0) {
+      throw new IllegalArgumentException(field + " must be positive");
     }
-    String base = cx.getCurrency().getSymbol().toUpperCase(Locale.ROOT);
-    String quote = "USDT"; // cx.getCurrencyQuote().getSymbol().toLowerCase(Locale.ROOT);
-    return new SymbolParts(base, quote);
+    return v;
   }
 
-  private static String defaultClientOrderId(OrderRequest req) {
-    return "CLI-" + req.getSymbol() + "-" + System.currentTimeMillis();
+  private static boolean equalsIgnoreCase(String a, String b) {
+    return a != null && a.equalsIgnoreCase(b);
+  }
+
+  private static String asString(Object o) {
+    return o == null ? null : String.valueOf(o);
   }
 }

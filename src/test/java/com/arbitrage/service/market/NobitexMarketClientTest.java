@@ -12,7 +12,11 @@ import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
-import org.junit.jupiter.api.*;
+import java.util.Locale;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -20,7 +24,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @ActiveProfiles("localtest")
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class NobitexMarketClientTest {
 
   @Autowired EntityManager em;
@@ -45,7 +48,8 @@ class NobitexMarketClientTest {
     CurrencyExchange cx = new CurrencyExchange();
     cx.setExchange(ex);
     cx.setCurrency(base);
-    //    cx.setCurrencyQuote(quote);
+    // اگر در مدل واقعی فیلد quote داری، اینجا ست کن
+    // cx.setCurrencyQuote(quote);
     cx.setExchangeSymbol(maybeSymbol);
     em.persist(cx);
     return cx;
@@ -53,44 +57,42 @@ class NobitexMarketClientTest {
 
   /**
    * خواندن موجودی کیف پول (live): فقط زمانی اجرا می‌شود که RUN_LIVE_PRIVATE_TESTS=true و توکن
-   * نوبیتکس ست شده باشد.
-   *
-   * <p>متغیر محیطی اختیاری NOBITEX_TEST_CCY برای تعیین ارز (پیش‌فرض "ltc").
+   * نوبیتکس ست باشد. متغیر محیطی اختیاری NOBITEX_TEST_CCY برای تعیین ارز (پیش‌فرض "rls").
    */
   @Test
-  @Order(0)
+  @DisplayName("Wallet balance: non-negative when token present")
   @Timeout(15)
   void getWalletBalance_live_returnsNonNegative_whenTokenPresent() {
-    BigDecimal balance = null;
+    String currency =
+        System.getenv().getOrDefault("NOBITEX_TEST_CCY", "rls").toLowerCase(Locale.ROOT);
+
+    BigDecimal balance;
     try {
-      balance = client.getWalletBalance("rls");
+      balance = client.getWalletBalance(currency);
     } catch (Exception ex) {
-      // اگر سرور 4xx/5xx داد، اینجا دیده میشه. برای دیباگ پیام را چاپ می‌کنیم.
       System.out.println("getWalletBalance live failed: " + ex.getMessage());
-      throw ex; // بگذاریم تست fail شود چون شرایط را opt-in کرده‌ایم
+      throw ex; // opt-in است؛ fail مناسب است
     }
 
-    assertThat(balance).isNotNull();
-    assertThat(balance).isGreaterThanOrEqualTo(BigDecimal.ZERO);
+    assertThat(balance).as("balance for %s should not be null", currency).isNotNull();
+    assertThat(balance)
+        .as("balance for %s should be >= 0", currency)
+        .isGreaterThanOrEqualTo(BigDecimal.ZERO);
   }
 
-  /**
-   * حالت منفی: ارز نامعتبر باید خطا بدهد (رفتار واقعی API معمولاً ۴xx). این تست هم نیازمند فعال
-   * بودن تست‌های خصوصی و توکن معتبر است.
-   */
+  /** حالت منفی: ارز نامعتبر باید خطا بدهد (رفتار واقعی API معمولاً ۴xx). */
   @Test
-  @Order(4)
+  @DisplayName("Wallet balance: invalid currency throws")
   @Timeout(15)
   void getWalletBalance_live_invalidCurrency_throws() {
     String invalid = "___invalid___";
-
     Assertions.assertThrows(Exception.class, () -> client.getWalletBalance(invalid));
   }
 
   @Test
-  @Order(1)
+  @DisplayName("Quotes: returns bid/ask for registered pairs")
   @Transactional
-  @Timeout(15) // ثانیه
+  @Timeout(15)
   void getQuotes_realCall_returnsBidAsk_forRegisteredPairs() {
     Exchange nobitex = ex("NOBITEX");
 
@@ -108,38 +110,37 @@ class NobitexMarketClientTest {
     List<Quote> quotes = client.getQuotes();
 
     // --- Assert ---
-    assertThat(quotes).isNotEmpty();
-    // انتظار داریم حداقل برای یک جفت قیمت برگردد
-    var any = quotes.get(0);
-    assertThat(any.getTs()).isGreaterThan(0);
+    assertThat(quotes).as("quotes list should not be empty").isNotEmpty();
 
-    // برای هر کویت: bid/ask باید مقدار مثبت داشته باشند
     for (var q : quotes) {
-      assertThat(q.getAsk()).isNotNull();
-      assertThat(q.getBid()).isNotNull();
-      assertThat(q.getAsk()).isGreaterThan(BigDecimal.ZERO);
-      assertThat(q.getBid()).isGreaterThan(BigDecimal.ZERO);
-      // معمولاً ask >= bid، اما برای اطمینان از شرایط نادری که ممکن است برعکس شود، شرط را نرم
-      // می‌گیریم
+      assertThat(q.getTs()).as("timestamp should be > 0").isGreaterThan(0);
+      assertThat(q.getAsk())
+          .as("ask should be positive")
+          .isNotNull()
+          .isGreaterThan(BigDecimal.ZERO);
+      assertThat(q.getBid())
+          .as("bid should be positive")
+          .isNotNull()
+          .isGreaterThan(BigDecimal.ZERO);
+      // اگر خواستی سخت‌گیرانه‌ترش کنی:
+      // assertThat(q.getAsk()).isGreaterThanOrEqualTo(q.getBid());
     }
   }
 
   /**
-   * این تست فقط در صورتی اجرا می‌شود که متغیر محیطی RUN_LIVE_ORDER_TESTS=true باشد و همچنین
-   * NOBITEX_TOKEN ست شده باشد. ⚠️ مسئولیت ریسک اجرای سفارش به عهده‌ی شماست.
+   * این تست صرفاً نمونه است و باید با دقت اجرا شود؛ مسئولیت ریسک اجرای سفارش با شماست. برای اجرا:
+   * RUN_LIVE_PRIVATE_TESTS=true و NOBITEX_TOKEN را ست کن.
    */
   @Test
-  @Order(2)
+  @DisplayName("Submit order: opt-in and requires token")
   @Timeout(20)
-  void placeOrder_live_isOptInAndRequiresToken() {
-    // این فقط یک مثال است؛ ممکن است نیاز به حداقل مقادیر و قوانین بازار داشته باشد.
-    // برای جلوگیری از معامله واقعی، این تست را تنها زمانی اجرا کنید که حساب/محیط شما امن است.
+  void submitOrder_live_isOptInAndRequiresToken() {
     var req =
         new OrderRequest(
             "btc-usdt",
             "buy",
-            new BigDecimal("0.0001"), // توجه به حداقل مقدار در صرافی
-            new BigDecimal("10000"), // عمداً پایین تا احتمالاً رد شود یا FOK/IOC بی‌اثر شود
+            new BigDecimal("0.0001"), // حداقل مقدار را با قوانین صرافی هماهنگ کن
+            new BigDecimal("10000"), // عمداً پایین تا احتمالاً رد شود
             "IOC");
 
     Assertions.assertTimeoutPreemptively(
@@ -147,29 +148,28 @@ class NobitexMarketClientTest {
         () -> {
           try {
             var ack = client.submitOrder(req);
-            // بسته به پاسخ، فقط presence فیلدها را چک می‌کنیم
             assertThat(ack).isNotNull();
-            assertThat(ack.getStatus()).isNotBlank();
+            assertThat(ack.getStatus()).as("ack status").isNotBlank();
+            assertThat(ack.getClientOrderId()).as("clientOrderId").isNotBlank();
           } catch (Exception ex) {
-            // قابل قبول: ممکن است به خاطر قوانین حداقل سفارش/اعتبار توکن خطا بدهد
+            // قابل قبول: ممکن است به خاطر حداقل سفارش/Ruleها رد شود
             System.out.println(
-                "placeOrder live call returned exception (acceptable for opt-in test): "
+                "submitOrder live call returned exception (acceptable for opt-in test): "
                     + ex.getMessage());
           }
         });
   }
 
   /**
-   * لغو سفارش — فقط اگر متغیر محیطی تست خصوصی فعال باشد. می‌توانید شناسه‌ی کلاینت واقعی بگذارید یا
-   * انتظار false داشته باشید.
+   * لغو سفارش — فقط اگر تست‌های خصوصی فعال باشد. می‌توانید شناسه‌ی کلاینت واقعی بگذارید یا انتظار
+   * false داشته باشید.
    */
   @Test
-  @Order(3)
-  //  @EnabledIfEnvironmentVariable(named = "RUN_LIVE_ORDER_TESTS", matches = "true")
+  @DisplayName("Cancel order: opt-in and requires token")
   @Timeout(20)
   void cancelOrder_live_isOptInAndRequiresToken() {
     boolean ok = client.cancelOrder("NON-EXISTENT-CLIENT-ORDER-ID");
-    // احتمالاً false برمی‌گردد (سفارش وجود ندارد) — فقط صحت اتصال/توکن برای endpoint خصوصی مهم است
+    // احتمالاً false برمی‌گردد (سفارش وجود ندارد) — هدف، صحت اتصال/توکن برای endpoint خصوصی است
     assertThat(ok).isIn(true, false);
   }
 }
