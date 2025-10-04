@@ -10,12 +10,10 @@ import com.arbitrage.enums.SignalStatus;
 import com.arbitrage.enums.ValidationPhase;
 import com.arbitrage.service.api.SignalProcessor;
 import com.arbitrage.service.api.SignalService;
-
+import com.arbitrage.service.validators.api.FreshnessValidator;
 import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
-
-import com.arbitrage.service.validators.api.FreshnessValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,54 +28,66 @@ public class DefaultSignalProcessor implements SignalProcessor {
 
   @Override
   public ProcessResult process(SignalMessageDto dto) {
+
     UUID id;
     try {
       id = signalService.saveSignal(dto);
     } catch (IllegalArgumentException iae) {
-      // Reference not found (exchange/pair) -> logical reject, ACK
-      Rejection rej = Rejection.builder()
+      Rejection rej =
+          Rejection.builder()
               .code(RejectCode.REFERENCE_NOT_FOUND)
               .message(iae.getMessage())
               .phase(ValidationPhase.PHASE0_PERSIST)
               .validator("SignalService")
               .occurredAt(clock.instant())
               .build();
-      log.warn("Signal rejected: code={}, externalId={}, reason={}",
-              rej.getCode(), dto.getSignalId(), iae.getMessage());
-      return ProcessResult.rejected(null, List.of(rej));
+      log.warn(
+          "Persist step rejected: externalId={}, reason={}", dto.getSignalId(), iae.getMessage());
+      return ProcessResult.rejected(null, List.of(rej)); // ACK
     } catch (Exception ex) {
-      Rejection rej = Rejection.builder()
+      Rejection rej =
+          Rejection.builder()
               .code(RejectCode.INTERNAL_ERROR)
-              .message("Unexpected error at persist phase")
+              .message("Unexpected error at persist step")
               .phase(ValidationPhase.PHASE0_PERSIST)
               .validator("SignalService")
               .occurredAt(clock.instant())
               .detail("error", ex.getMessage())
               .build();
-      log.error("internal error: externalId={}, err={}", dto.getSignalId(), ex.getMessage(), ex);
-      return ProcessResult.retryTransient(List.of(rej));
+      log.error(
+          "Persist step error (transient): externalId={}, err={}",
+          dto.getSignalId(),
+          ex.getMessage(),
+          ex);
+      return ProcessResult.retryTransient(List.of(rej)); // NO_ACK
     }
 
-    // Build context for validations
+    // Build context
     SignalContext ctx = SignalContext.of(dto, clock, id);
 
-    // Phase 1: Freshness / Latency
+    // Freshness/Latency step
     StepResult fresh = freshnessValidator.validate(ctx);
     if (!fresh.isOk()) {
-      // Update status to REJECTED (audit-friendly)
+      // Mark as REJECTED (best-effort)
       try {
         signalService.updateStatus(id, SignalStatus.REJECTED);
       } catch (Exception e) {
         log.warn("Status update to REJECTED failed: signalId={}", id, e);
       }
-      List<Rejection> rej = fresh.getRejection().map(List::of).orElse(List.of());
-      log.warn("Phase-1 reject: externalId={}, signalId={}, reason={}",
-              dto.getSignalId(), id, rej.isEmpty() ? "n/a" : rej.get(0).getMessage());
-      return ProcessResult.rejected(id, rej);
+
+      List<Rejection> rejections =
+          fresh.getRejection().map(java.util.List::of).orElse(java.util.List.of());
+      log.warn(
+          "Rejected at freshness: externalId={}, signalId={}, code={}, msg={}",
+          dto.getSignalId(),
+          id,
+          rejections.isEmpty() ? "n/a" : rejections.get(0).getCode(),
+          rejections.isEmpty() ? "n/a" : rejections.get(0).getMessage());
+
+      return ProcessResult.rejected(id, rejections); // ACK
     }
 
-    // If passed, we keep going in next phases (not implemented yet here)
-    log.info("Phase-1 passed (freshness): externalId={}, signalId={}", dto.getSignalId(), id);
+    log.info("Freshness check passed: externalId={}, signalId={}", dto.getSignalId(), id);
     return ProcessResult.accepted(id);
   }
 }

@@ -4,7 +4,10 @@ import com.arbitrage.enums.OrderStatus;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.util.Date;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
 @Entity

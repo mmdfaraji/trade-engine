@@ -15,7 +15,6 @@ import com.arbitrage.service.api.SignalService;
 import com.arbitrage.service.mapping.SignalAssembler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

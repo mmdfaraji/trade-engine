@@ -5,7 +5,9 @@ import com.arbitrage.enums.ValidationPhase;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
 import java.util.Map;
-import lombok.*;
+import lombok.Builder;
+import lombok.Singular;
+import lombok.Value;
 
 @Value
 @Builder

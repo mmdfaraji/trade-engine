@@ -26,6 +26,68 @@ public final class Rejections {
         .build();
   }
 
+  public static Rejection internalError(
+      Clock clock, String validator, String error, String exceptionClass) {
+    return Rejection.builder()
+        .code(RejectCode.INTERNAL_ERROR)
+        .message("Internal error")
+        .phase(ValidationPhase.PHASE0_PERSIST) // or the actual phase
+        .validator(validator)
+        .occurredAt(clock.instant())
+        .detail("error", error)
+        .detail("exceptionClass", exceptionClass)
+        .build();
+  }
+
+  public static Rejection latencyExceeded(
+      Clock clock, long ageMs, long maxLatencyMs, Instant createdAt, Instant now) {
+    return Rejection.builder()
+        .code(RejectCode.STALE)
+        .message("Latency is above the configured maximum")
+        .phase(ValidationPhase.PHASE1_FRESHNESS)
+        .validator("FreshnessValidator")
+        .occurredAt(clock.instant())
+        .detail("ageMs", ageMs)
+        .detail("maxLatencyMs", maxLatencyMs)
+        .detail("createdAt", createdAt)
+        .detail("now", now)
+        .build();
+  }
+
+  public static Rejection missingCreatedAt(Clock clock, String externalId) {
+    return Rejection.builder()
+        .code(RejectCode.INVALID_INPUT)
+        .message("Missing createdAt; cannot evaluate TTL/latency")
+        .phase(ValidationPhase.PHASE1_FRESHNESS)
+        .validator("FreshnessValidator")
+        .occurredAt(clock.instant())
+        .detail("externalId", externalId)
+        .build();
+  }
+
+  public static Rejection missingTtl(Clock clock, String externalId) {
+    return Rejection.builder()
+        .code(RejectCode.INVALID_INPUT)
+        .message("Missing ttlMs; cannot evaluate TTL")
+        .phase(ValidationPhase.PHASE1_FRESHNESS)
+        .validator("FreshnessValidator")
+        .occurredAt(clock.instant())
+        .detail("externalId", externalId)
+        .build();
+  }
+
+  public static Rejection nonPositiveTtl(Clock clock, String externalId, Long ttlMs) {
+    return Rejection.builder()
+        .code(RejectCode.INVALID_INPUT)
+        .message("Non-positive ttlMs; cannot accept")
+        .phase(ValidationPhase.PHASE1_FRESHNESS)
+        .validator("FreshnessValidator")
+        .occurredAt(clock.instant())
+        .detail("externalId", externalId)
+        .detail("ttlMs", ttlMs)
+        .build();
+  }
+
   public static Rejection stale(
       Clock clock, long ageMs, long ttlMs, Instant createdAt, Instant now) {
     return Rejection.builder()
@@ -154,33 +216,4 @@ public final class Rejections {
         .detail("retryAfterMs", retryAfterMs)
         .build();
   }
-
-  public static Rejection internalError(
-      Clock clock, String validator, String error, String exceptionClass) {
-    return Rejection.builder()
-        .code(RejectCode.INTERNAL_ERROR)
-        .message("Internal error")
-        .phase(ValidationPhase.PHASE0_PERSIST) // or the actual phase
-        .validator(validator)
-        .occurredAt(clock.instant())
-        .detail("error", error)
-        .detail("exceptionClass", exceptionClass)
-        .build();
-  }
-
-
-  public static Rejection latencyExceeded(Clock clock, long ageMs, long maxLatencyMs, Instant createdAt, Instant now) {
-    return Rejection.builder()
-            .code(RejectCode.STALE)
-            .message("Latency is above the configured maximum")
-            .phase(ValidationPhase.PHASE1_FRESHNESS)
-            .validator("FreshnessValidator")
-            .occurredAt(clock.instant())
-            .detail("ageMs", ageMs)
-            .detail("maxLatencyMs", maxLatencyMs)
-            .detail("createdAt", createdAt)
-            .detail("now", now)
-            .build();
-  }
-
 }

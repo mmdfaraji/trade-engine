@@ -1,6 +1,7 @@
 package com.arbitrage.config;
 
-import io.nats.client.*;
+import io.nats.client.JetStreamApiException;
+import io.nats.client.JetStreamManagement;
 import io.nats.client.api.*;
 import jakarta.annotation.PostConstruct;
 import java.time.Duration;
