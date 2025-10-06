@@ -1,23 +1,26 @@
 package com.arbitrage.service.market;
 
+import com.arbitrage.config.NobitexClientsBuilder;
 import com.arbitrage.entities.CurrencyExchange;
+import com.arbitrage.entities.Exchange;
+import com.arbitrage.entities.ExchangeAccount;
 import com.arbitrage.enums.OrderSide;
 import com.arbitrage.model.OrderAck;
 import com.arbitrage.model.OrderRequest;
 import com.arbitrage.model.Quote;
 import com.arbitrage.respository.CurrencyExchangeRepository;
+import com.arbitrage.service.ExchangeAccessService;
 import com.arbitrage.service.api.ExchangeMarketClient;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.annotation.Nullable;
+import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
@@ -34,14 +37,14 @@ public class NobitexMarketClient implements ExchangeMarketClient {
 
   private final CurrencyExchangeRepository currencyExchangeRepo;
 
-  @Value("${exchanges.nobitex.name:NOBITEX}")
-  private String exchangeName;
+  private final ExchangeAccessService accessService;
+  private final NobitexClientsBuilder clientsBuilder;
 
-  @Qualifier("nobitexPublicRestClient")
-  private final RestClient nobitexPublicRestClient;
+  private RestClient nobitexPublicRestClient;
+  private RestClient nobitexPrivateRestClient;
 
-  @Qualifier("nobitexPrivateRestClient")
-  private final RestClient nobitexPrivateRestClient;
+  private final String exchangeName = "NOBITEX";
+  private final String accountLabel = "Nobitex";
 
   private static final String PATH_STATS = "/market/stats";
   private static final String PATH_BALANCE = "/users/wallets/balance";
@@ -64,6 +67,14 @@ public class NobitexMarketClient implements ExchangeMarketClient {
 
   private record SymbolParts(String base, String quote) {}
 
+  @PostConstruct
+  void init() {
+    Exchange ex = accessService.requireExchange(exchangeName);
+    ExchangeAccount acc = accessService.requireAccount(exchangeName, accountLabel);
+    this.nobitexPublicRestClient = clientsBuilder.buildPublic(ex);
+    this.nobitexPrivateRestClient = clientsBuilder.buildPrivate(ex, acc);
+  }
+
   @Override
   public BigDecimal getWalletBalance(String currency) {
     final String ccy = requireNonBlankLower(currency, "currency");
@@ -71,7 +82,7 @@ public class NobitexMarketClient implements ExchangeMarketClient {
       MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
       form.add("currency", ccy);
 
-      BalanceResponse resp =
+      BalanceResponse response =
           nobitexPrivateRestClient
               .post()
               .uri(PATH_BALANCE)
@@ -81,11 +92,11 @@ public class NobitexMarketClient implements ExchangeMarketClient {
               .retrieve()
               .body(BalanceResponse.class);
 
-      if (resp == null || resp.balance() == null || resp.status() == null) {
+      if (response == null || response.balance() == null || response.status() == null) {
         throw new IllegalStateException("Empty response from Nobitex balance API");
       }
-      return new BigDecimal(resp.balance());
 
+      return new BigDecimal(response.balance());
     } catch (RestClientResponseException httpEx) {
       log.error("Nobitex balance HTTP {}: {}", httpEx.getRawStatusCode(), safeBody(httpEx));
       throw httpEx;
@@ -150,7 +161,7 @@ public class NobitexMarketClient implements ExchangeMarketClient {
       form.add("clientOrderId", clientOrderId);
 
       @SuppressWarnings("unchecked")
-      final Map<String, Object> resp =
+      final Map<String, Object> response =
           nobitexPrivateRestClient
               .post()
               .uri(PATH_ORDER_ADD)
@@ -160,8 +171,8 @@ public class NobitexMarketClient implements ExchangeMarketClient {
               .retrieve()
               .body(Map.class);
 
-      final String exchangeOrderId = resp != null ? asString(resp.get("orderId")) : null;
-      final String status = resp != null ? resp.get("status").toString() : "unknown";
+      final String exchangeOrderId = response != null ? asString(response.get("orderId")) : null;
+      final String status = response != null ? response.get("status").toString() : "unknown";
 
       return new OrderAck(clientOrderId, exchangeOrderId, status);
 
@@ -186,7 +197,7 @@ public class NobitexMarketClient implements ExchangeMarketClient {
       }
 
       @SuppressWarnings("unchecked")
-      final Map<String, Object> resp =
+      final Map<String, Object> response =
           nobitexPrivateRestClient
               .post()
               .uri(PATH_ORDER_UPDATE) // apiv2 absolute URL
@@ -196,8 +207,8 @@ public class NobitexMarketClient implements ExchangeMarketClient {
               .retrieve()
               .body(Map.class);
 
-      final String status = resp != null ? asString(resp.get("status")) : null;
-      final String updated = resp != null ? asString(resp.get("updatedStatus")) : null;
+      final String status = response != null ? asString(response.get("status")) : null;
+      final String updated = response != null ? asString(response.get("updatedStatus")) : null;
 
       final boolean ok =
           equalsIgnoreCase(status, "ok")
@@ -209,8 +220,8 @@ public class NobitexMarketClient implements ExchangeMarketClient {
             "Cancel not confirmed. status={}, updatedStatus={}, code={}, message={}",
             status,
             updated,
-            asString(resp != null ? resp.get("code") : null),
-            asString(resp != null ? resp.get("message") : null));
+            asString(response != null ? response.get("code") : null),
+            asString(response != null ? response.get("message") : null));
       }
 
       return ok;
@@ -224,10 +235,6 @@ public class NobitexMarketClient implements ExchangeMarketClient {
     }
   }
 
-  /**
-   * اگر exchangeSymbol مثل "btc-usdt" ست بود، همان را می‌شکند؛ وگرنه از فیلدهای موجود entity
-   * استفاده می‌کند و به fallback می‌رود.
-   */
   private SymbolParts symbolParts(CurrencyExchange cx) {
     final String exSymbol = cx.getExchangeSymbol();
     if (StringUtils.hasText(exSymbol) && exSymbol.contains("-")) {
@@ -237,8 +244,6 @@ public class NobitexMarketClient implements ExchangeMarketClient {
       }
     }
 
-    // Fallback: از currency به عنوان base و پیش‌فرض quote = usdt
-    // اگر پروژه‌ی شما field جدا برای quote دارد، همان را جایگزین کنید.
     final String base = cx.getCurrency().getSymbol().toLowerCase(Locale.ROOT);
     final String quote = "usdt";
 
@@ -247,7 +252,7 @@ public class NobitexMarketClient implements ExchangeMarketClient {
 
   private @Nullable BigDecimal bestPrice(String base, String quote, OrderSide orderSide) {
     try {
-      final StatsResponse resp =
+      final StatsResponse response =
           nobitexPublicRestClient
               .get()
               .uri(
@@ -259,16 +264,16 @@ public class NobitexMarketClient implements ExchangeMarketClient {
               .retrieve()
               .body(StatsResponse.class);
 
-      if (resp == null || resp.stats() == null || resp.stats().isEmpty()) {
+      if (response == null || response.stats() == null || response.stats().isEmpty()) {
         log.debug("Empty stats from Nobitex for {}-{}", base, quote);
         return null;
       }
 
       final String key = (base + "-" + quote).toLowerCase(Locale.ROOT);
-      MarketStat s = resp.stats().get(key);
+      MarketStat s = response.stats().get(key);
       if (s == null) {
         s =
-            resp.stats().entrySet().stream()
+            response.stats().entrySet().stream()
                 .filter(e -> e.getKey().equalsIgnoreCase(key))
                 .map(Map.Entry::getValue)
                 .findFirst()
@@ -297,8 +302,8 @@ public class NobitexMarketClient implements ExchangeMarketClient {
     }
   }
 
-  private static String defaultClientOrderId(OrderRequest req) {
-    return (req.getSide() + "-" + req.getSymbol() + "-" + System.currentTimeMillis())
+  private static String defaultClientOrderId(OrderRequest request) {
+    return (request.getSide() + "-" + request.getSymbol() + "-" + System.currentTimeMillis())
         .toUpperCase(Locale.ROOT);
   }
 

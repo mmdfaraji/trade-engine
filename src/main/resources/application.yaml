@@ -30,6 +30,12 @@ app:
       name: NOBITEX
       base-url: https://apiv2.nobitex.ir
       token: 47fdebe4a10cfbf45de949c3690bb73f0346414b
+    ramzinex:
+      name: RAMZINEX
+      base-url: https://api.ramzinex.com
+      public-api: https://publicapi.ramzinex.com
+      api-key: ApiKeySFlDbsC:802e0f3e6c3a4e51ad0aecb261928cbe2898fe66226128d1952064c2a39dfbd9
+      private-token: b81d0cf60f082490d8610ce5ea2c7650
 
   http:
     timeout:

@@ -35,9 +35,14 @@ WHERE c.symbol <> 'USDT'        -- avoid USDT-USDT
 
 insert into exchanges (id, created_at, updated_at, version, name, private_api_url, private_ws_url, public_api_url,
                        public_ws_url, status)
-values (nextval('exchanges_id_seq'), now(), now(), 0, 'RAMZINEX', '', '', 'https://publicapi.ramzinex.com','wss://websocket.ramzinex.com/websocket','ACTIVE'),
-       (nextval('exchanges_id_seq'), now(), now(), 0, 'NOBITEX', '', '','https://apiv2.nobitex.ir','wss://ws.nobitex.ir/connection/websocket','ACTIVE');
+values (nextval('exchanges_id_seq'), now(), now(), 0, 'RAMZINEX', 'https://api.ramzinex.com', '', 'https://publicapi.ramzinex.com','wss://websocket.ramzinex.com/websocket','ACTIVE'),
+       (nextval('exchanges_id_seq'), now(), now(), 0, 'NOBITEX', 'https://apiv2.nobitex.ir', '','https://apiv2.nobitex.ir','wss://ws.nobitex.ir/connection/websocket','ACTIVE');
 
+insert into exchange_accounts (id, created_at, updated_at, version, api_key, secret_key,
+                               is_primary,
+                               label, exchange_id)
+values (nextval('currency_exchanges_id_seq'), now(), now(), 0, 'ApiKeySFlDbsC:802e0f3e6c3a4e51ad0aecb261928cbe2898fe66226128d1952064c2a39dfbd9', 'b81d0cf60f082490d8610ce5ea2c7650', true, 'Ramzinex', 1),
+       (nextval('currency_exchanges_id_seq'), now(), now(), 0, '47fdebe4a10cfbf45de949c3690bb73f0346414b', '', true, 'Nobitex', 2);
 
 /*******************************************CURRENCY_EXCHANGES*******************************************/
 

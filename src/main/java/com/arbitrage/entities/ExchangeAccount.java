@@ -17,6 +17,7 @@ public class ExchangeAccount extends LongIdEntity {
   private Exchange exchange;
 
   private String label;
-  private String apiKeyRef;
+  private String apiKey;
+  private String secretKey;
   private Boolean isPrimary;
 }

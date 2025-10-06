@@ -51,7 +51,8 @@ create table if not exists exchange_accounts
     created_at  timestamp(6),
     updated_at  timestamp(6),
     version     integer,
-    api_key_ref varchar(255),
+    api_key     varchar(255),
+    secret_key  varchar(255),
     is_primary  boolean,
     label       varchar(255),
     exchange_id bigint

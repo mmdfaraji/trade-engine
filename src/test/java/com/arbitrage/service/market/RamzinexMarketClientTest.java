@@ -24,11 +24,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @ActiveProfiles("localtest")
-class NobitexMarketClientTest {
+class RamzinexMarketClientTest {
 
   @Autowired EntityManager em;
   @Autowired CurrencyExchangeRepository currencyExchangeRepository;
-  @Autowired NobitexMarketClient client;
+  @Autowired RamzinexMarketClient client;
 
   private Exchange ex(String name) {
     Exchange e = new Exchange();
@@ -60,14 +60,14 @@ class NobitexMarketClientTest {
   @Timeout(15)
   void getWalletBalance_live_returnsNonNegative_whenTokenPresent() {
     String currency =
-        System.getenv().getOrDefault("NOBITEX_TEST_CCY", "rls").toLowerCase(Locale.ROOT);
+        System.getenv().getOrDefault("RAMZINEX_TEST_CCY", "irr").toLowerCase(Locale.ROOT);
 
     BigDecimal balance;
     try {
       balance = client.getWalletBalance(currency);
     } catch (Exception ex) {
       System.out.println("getWalletBalance live failed: " + ex.getMessage());
-      throw ex; // opt-in است؛ fail مناسب است
+      throw ex; // چون live است، fail شدن به معنی مشکل اتصال/توکن/ارز است
     }
 
     assertThat(balance).as("balance for %s should not be null", currency).isNotNull();
@@ -76,7 +76,6 @@ class NobitexMarketClientTest {
         .isGreaterThanOrEqualTo(BigDecimal.ZERO);
   }
 
-  /** حالت منفی: ارز نامعتبر باید خطا بدهد (رفتار واقعی API معمولاً ۴xx). */
   @Test
   @DisplayName("Wallet balance: invalid currency throws")
   @Timeout(15)
@@ -88,21 +87,21 @@ class NobitexMarketClientTest {
   @Test
   @DisplayName("Quotes: returns bid/ask for registered pairs")
   @Transactional
-  @Timeout(15)
+  @Timeout(20)
   void getQuotes_realCall_returnsBidAsk_forRegisteredPairs() {
-    Exchange nobitex = ex("NOBITEX");
+    Exchange ramzinex = ex("RAMZINEX");
 
     Currency btc = ccy("BTC");
     Currency eth = ccy("ETH");
-    Currency usdt = ccy("USDT");
+    Currency irr = ccy("IRR");
 
-    // می‌توانیم از exchangeSymbol استفاده کنیم یا به base/quote بسنده کنیم
-    cx(nobitex, btc, usdt, "btc-usdt");
-    cx(nobitex, eth, usdt, null); // fallback به base/quote
+    // برای رمزینکس جفت‌های پرکاربرد: btc-irr و eth-irr
+    cx(ramzinex, btc, irr, "btc-irr");
+    cx(ramzinex, eth, irr, "eth-irr");
 
     em.flush();
 
-    // --- Act: real HTTP calls to Nobitex public API ---
+    // --- Act: real HTTP calls to Ramzinex public API orderbooks ---
     List<Quote> quotes = client.getQuotes();
 
     // --- Assert ---
@@ -118,25 +117,25 @@ class NobitexMarketClientTest {
           .as("bid should be positive")
           .isNotNull()
           .isGreaterThan(BigDecimal.ZERO);
-      // اگر خواستی سخت‌گیرانه‌ترش کنی:
+      // معمولاً ask >= bid؛ اگر سخت‌گیری خواستی:
       // assertThat(q.getAsk()).isGreaterThanOrEqualTo(q.getBid());
     }
   }
 
   @Test
   @DisplayName("Submit order: opt-in and requires token")
-  @Timeout(20)
+  @Timeout(25)
   void submitOrder_live_isOptInAndRequiresToken() {
     var req =
         new OrderRequest(
-            "btc-usdt",
+            "btc-irr",
             "buy",
-            new BigDecimal("0.0001"), // حداقل مقدار را با قوانین صرافی هماهنگ کن
-            new BigDecimal("10000"), // عمداً پایین تا احتمالاً رد شود
+            new BigDecimal("0.0001"), // حداقل مقدار خرید BTC را با قوانین رمزینکس تطبیق بده
+            new BigDecimal("100000000"), // قیمت عمداً پایین/دور از بازار تا reject محتمل باشد
             "IOC");
 
     Assertions.assertTimeoutPreemptively(
-        Duration.ofSeconds(20),
+        Duration.ofSeconds(25),
         () -> {
           try {
             var ack = client.submitOrder(req);
@@ -146,7 +145,7 @@ class NobitexMarketClientTest {
           } catch (Exception ex) {
             // قابل قبول: ممکن است به خاطر حداقل سفارش/Ruleها رد شود
             System.out.println(
-                "submitOrder live call returned exception (acceptable for opt-in test): "
+                "submitOrder live returned exception (acceptable for opt-in test): "
                     + ex.getMessage());
           }
         });
@@ -156,8 +155,8 @@ class NobitexMarketClientTest {
   @DisplayName("Cancel order: opt-in and requires token")
   @Timeout(20)
   void cancelOrder_live_isOptInAndRequiresToken() {
-    boolean ok = client.cancelOrder("NON-EXISTENT-CLIENT-ORDER-ID");
-    // احتمالاً false برمی‌گردد (سفارش وجود ندارد) — هدف، صحت اتصال/توکن برای endpoint خصوصی است
+    // توجه: پیاده‌سازی RamzinexMarketClient برای cancel نیازمند numeric order_id است.
+    boolean ok = client.cancelOrder("0"); // شناسهٔ غیرواقعی → معمولاً false
     assertThat(ok).isIn(true, false);
   }
 }
