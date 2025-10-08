@@ -11,5 +11,5 @@ public interface ExchangeAccountRepository extends JpaRepository<ExchangeAccount
 
   Optional<ExchangeAccount> findFirstByExchangeAndLabelIgnoreCase(Exchange exchange, String label);
 
-  Optional<ExchangeAccount> findFirstByExchangeOrderByIdAsc(Exchange exchange);
+  Optional<ExchangeAccount> findFirstByExchange(Exchange exchange);
 }

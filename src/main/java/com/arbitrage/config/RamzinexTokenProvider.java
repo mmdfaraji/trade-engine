@@ -6,120 +6,78 @@ import com.arbitrage.service.ExchangeAccessService;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 @Component
 public class RamzinexTokenProvider {
 
-  private final ExchangeAccessService access;
+  public static final String PATH_GET_TOKEN = "/exchange/api/v1.0/exchange/auth/api_key/getToken";
+  private final ExchangeAccessService directory;
+  private final ExchangeClientFactory factory;
+  private final Map<String, Cached> cache = new ConcurrentHashMap<>();
 
-  private final RestClient openClient;
-
-  private final AtomicReference<CachedToken> cache = new AtomicReference<>();
-
-  public RamzinexTokenProvider(ExchangeAccessService access, RestClient ramzinexOpenRestClient) {
-    this.access = access;
-    this.openClient = ramzinexOpenRestClient;
+  public RamzinexTokenProvider(ExchangeAccessService directory, ExchangeClientFactory factory) {
+    this.directory = directory;
+    this.factory = factory;
   }
 
-  public String getToken(String exchangeName) {
-    CachedToken ct = cache.get();
+  public String token(String exchangeName, String accountLabel) {
+    String key = (exchangeName + ":" + accountLabel).toLowerCase(Locale.ROOT);
+    Cached e = cache.get(key);
     long now = Instant.now().getEpochSecond();
-    if (ct != null && ct.expiresAtEpochSec - 30 > now) return ct.token;
+    if (e != null && e.exp - 30 > now) return e.token;
 
-    synchronized (this) {
-      ct = cache.get();
-      if (ct != null && ct.expiresAtEpochSec - 30 > now) return ct.token;
+    synchronized (cache.computeIfAbsent(key, k -> new Cached(null, 0))) {
+      e = cache.get(key);
+      if (e != null && e.exp - 30 > now) return e.token;
 
-      Exchange ex = access.requireExchange(exchangeName);
-      ExchangeAccount acc = access.requireAccount(exchangeName, "Ramzinex");
-      String apiKey = acc.getApiKey();
-      String secret = acc.getSecretKey();
+      Exchange ex = directory.requireExchange(exchangeName);
+      ExchangeAccount acc = directory.requireAccount(exchangeName, accountLabel);
+      RestClient openRestClient = factory.buildPublic(ex.getPrivateApiUrl());
 
-      Map<String, Object> body = Map.of("api_key", apiKey, "secret", secret);
+      Map<?, ?> response =
+          openRestClient
+              .post()
+              .uri(PATH_GET_TOKEN)
+              .contentType(MediaType.APPLICATION_JSON)
+              .body(Map.of("api_key", acc.getApiKey(), "secret", acc.getSecretKey()))
+              .retrieve()
+              .body(Map.class);
 
-      int attempts = 0;
-      while (true) {
-        attempts++;
-        try {
-          Map<?, ?> response =
-              openClient
-                  .post()
-                  .uri("/exchange/api/v1.0/exchange/auth/api_key/getToken")
-                  .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                  .body(body)
-                  .retrieve()
-                  .body(Map.class);
-
-          if (response == null
-              || !(response.get("data") instanceof Map)
-              || ((Map) response.get("data")).get("token") == null) {
-            throw new IllegalStateException("Ramzinex getToken: empty/invalid response");
-          }
-
-          String token = String.valueOf(((Map) response.get("data")).get("token"));
-          long exp = decodeJwtExp(token);
-          cache.set(new CachedToken(token, exp));
-          return token;
-
-        } catch (ResourceAccessException rae) {
-          // Root cause can be InterruptedException; handle it distinctly
-          Throwable cause = rae.getCause();
-          if (cause instanceof java.lang.InterruptedException) {
-            Thread.currentThread().interrupt(); // restore
-            throw new IllegalStateException("Ramzinex getToken interrupted", cause);
-          }
-          if (attempts >= 3) throw rae;
-          try {
-            Thread.sleep(250L * attempts);
-          } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Ramzinex getToken interrupted during backoff", ie);
-          }
-        }
-      }
+      String token = extractToken(response);
+      long exp = decodeExp(token);
+      cache.put(key, new Cached(token, exp));
+      return token;
     }
   }
 
-  private static final class CachedToken {
-    final String token;
-    final long expiresAtEpochSec;
-
-    private CachedToken(String token, long exp) {
-      this.token = token;
-      this.expiresAtEpochSec = exp;
-    }
+  private static String extractToken(Map<?, ?> resp) {
+    if (resp == null) throw new IllegalStateException("getToken: response is null");
+    Object data = resp.get("data");
+    if (!(data instanceof Map<?, ?>)) throw new IllegalStateException("getToken: missing data");
+    Object t = ((Map) data).get("token");
+    if (!(t instanceof String) || t.toString().isBlank())
+      throw new IllegalStateException("getToken: token missing");
+    return (String) t;
   }
 
-  @SuppressWarnings("unchecked")
-  private static String extractToken(Map response) {
-    if (response == null) throw new IllegalStateException("getToken: response is null");
-    Object dataObj = response.get("data");
-    if (!(dataObj instanceof Map)) throw new IllegalStateException("getToken: data missing");
-    Object tokenObj = ((Map) dataObj).get("token");
-    if (!(tokenObj instanceof String) || ((String) tokenObj).isBlank())
-      throw new IllegalStateException("getToken: token missing/blank");
-    return (String) tokenObj;
-  }
-
-  private static long decodeJwtExp(String jwt) {
+  private static long decodeExp(String jwt) {
     try {
       String[] parts = jwt.split("\\.");
       if (parts.length < 2) return Instant.now().plusSeconds(600).getEpochSecond();
-      byte[] json = Base64.getUrlDecoder().decode(parts[1].getBytes(StandardCharsets.UTF_8));
-      String payload = new String(json, StandardCharsets.UTF_8);
-
-      int i = payload.indexOf("\"exp\":");
+      byte[] payload = Base64.getUrlDecoder().decode(parts[1].getBytes(StandardCharsets.UTF_8));
+      String json = new String(payload, StandardCharsets.UTF_8);
+      int i = json.indexOf("\"exp\":");
       if (i < 0) return Instant.now().plusSeconds(600).getEpochSecond();
-      int start = i + 6;
-      int end = start;
-      while (end < payload.length() && Character.isDigit(payload.charAt(end))) end++;
-      return Long.parseLong(payload.substring(start, end));
-    } catch (Exception e) {
+      int s = i + 6, e = s;
+      while (e < json.length() && Character.isDigit(json.charAt(e))) e++;
+      return Long.parseLong(json.substring(s, e));
+    } catch (Exception ex) {
       return Instant.now().plusSeconds(600).getEpochSecond();
     }
   }
