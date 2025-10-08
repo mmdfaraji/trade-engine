@@ -8,6 +8,8 @@ import java.util.List;
 
 public interface ExchangeMarketClient {
 
+  String getExchangeName();
+
   BigDecimal getWalletBalance(String currency);
 
   List<Quote> getQuotes();

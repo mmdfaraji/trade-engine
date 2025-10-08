@@ -48,7 +48,7 @@ class NobitexMarketClientTest {
     CurrencyExchange cx = new CurrencyExchange();
     cx.setExchange(ex);
     cx.setCurrency(base);
-    // اگر در مدل واقعی فیلد quote داری، اینجا ست کن
+    // If the production model exposes the quote currency, set it here.
     // cx.setCurrencyQuote(quote);
     cx.setExchangeSymbol(maybeSymbol);
     em.persist(cx);
@@ -67,7 +67,7 @@ class NobitexMarketClientTest {
       balance = client.getWalletBalance(currency);
     } catch (Exception ex) {
       System.out.println("getWalletBalance live failed: " + ex.getMessage());
-      throw ex; // opt-in است؛ fail مناسب است
+      throw ex; // Opt-in test: failing indicates an issue with connectivity/token/currency.
     }
 
     assertThat(balance).as("balance for %s should not be null", currency).isNotNull();
@@ -76,7 +76,7 @@ class NobitexMarketClientTest {
         .isGreaterThanOrEqualTo(BigDecimal.ZERO);
   }
 
-  /** حالت منفی: ارز نامعتبر باید خطا بدهد (رفتار واقعی API معمولاً ۴xx). */
+  /** Negative case: an invalid currency should raise an error (real API typically returns 4xx). */
   @Test
   @DisplayName("Wallet balance: invalid currency throws")
   @Timeout(15)
@@ -96,9 +96,9 @@ class NobitexMarketClientTest {
     Currency eth = ccy("ETH");
     Currency usdt = ccy("USDT");
 
-    // می‌توانیم از exchangeSymbol استفاده کنیم یا به base/quote بسنده کنیم
+    // We can rely on exchangeSymbol or fall back to base/quote symbols.
     cx(nobitex, btc, usdt, "btc-usdt");
-    cx(nobitex, eth, usdt, null); // fallback به base/quote
+    cx(nobitex, eth, usdt, null); // Fallback to base/quote
 
     em.flush();
 
@@ -118,7 +118,7 @@ class NobitexMarketClientTest {
           .as("bid should be positive")
           .isNotNull()
           .isGreaterThan(BigDecimal.ZERO);
-      // اگر خواستی سخت‌گیرانه‌ترش کنی:
+      // Uncomment if you prefer the stricter ask >= bid assertion:
       // assertThat(q.getAsk()).isGreaterThanOrEqualTo(q.getBid());
     }
   }
@@ -131,8 +131,8 @@ class NobitexMarketClientTest {
         new OrderRequest(
             "btc-usdt",
             "buy",
-            new BigDecimal("0.0001"), // حداقل مقدار را با قوانین صرافی هماهنگ کن
-            new BigDecimal("10000"), // عمداً پایین تا احتمالاً رد شود
+            new BigDecimal("0.0001"), // Align with the exchange minimum order size.
+            new BigDecimal("10000"), // Intentionally low so rejection is likely.
             "IOC");
 
     Assertions.assertTimeoutPreemptively(
@@ -144,7 +144,7 @@ class NobitexMarketClientTest {
             assertThat(ack.getStatus()).as("ack status").isNotBlank();
             assertThat(ack.getClientOrderId()).as("clientOrderId").isNotBlank();
           } catch (Exception ex) {
-            // قابل قبول: ممکن است به خاطر حداقل سفارش/Ruleها رد شود
+            // Acceptable: the exchange may reject it because of minimum order rules.
             System.out.println(
                 "submitOrder live call returned exception (acceptable for opt-in test): "
                     + ex.getMessage());
@@ -157,7 +157,7 @@ class NobitexMarketClientTest {
   @Timeout(20)
   void cancelOrder_live_isOptInAndRequiresToken() {
     boolean ok = client.cancelOrder("NON-EXISTENT-CLIENT-ORDER-ID");
-    // احتمالاً false برمی‌گردد (سفارش وجود ندارد) — هدف، صحت اتصال/توکن برای endpoint خصوصی است
+    // Most likely false (order does not exist) — goal is verifying auth for the private endpoint.
     assertThat(ok).isIn(true, false);
   }
 }

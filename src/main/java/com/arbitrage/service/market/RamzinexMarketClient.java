@@ -10,6 +10,7 @@ import com.arbitrage.model.Quote;
 import com.arbitrage.respository.CurrencyExchangeRepository;
 import com.arbitrage.service.ExchangeAccessService;
 import com.arbitrage.service.api.ExchangeMarketClient;
+import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
@@ -24,16 +25,18 @@ import org.springframework.web.client.RestClientResponseException;
 @Component
 public class RamzinexMarketClient implements ExchangeMarketClient {
 
-  private final CurrencyExchangeRepository cxRepo;
-  private final ExchangeAccessService directory;
-  private final RamzinexClients clients;
+  private static final Locale LOCALE = Locale.ROOT;
 
-  private RestClient pub;
-  private RestClient prv;
-  private RestClient openRestClient;
+  private final CurrencyExchangeRepository currencyExchangeRepository;
+  private final ExchangeAccessService exchangeAccessService;
+  private final RamzinexClients ramzinexClients;
+
+  private RestClient publicClient;
+  private RestClient privateClient;
+  private RestClient authenticatedRestClient;
 
   private static final String EXCHANGE = "RAMZINEX";
-  private static final String ACCOUNT = "default";
+  private static final String ACCOUNT = "Ramzinex";
 
   private static final String P_PAIRS = "/exchange/api/v2.0/exchange/pairs";
   private static final String P_CURRENCIES = "/exchange/api/v2.0/exchange/currencies";
@@ -48,32 +51,42 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
   private static final Pattern DIGITS = Pattern.compile("\\d+");
   private volatile boolean pairsLoaded = false;
   private final Map<String, Integer> symbolToPairId = new ConcurrentHashMap<>();
+  private final Object pairLock = new Object();
   private volatile boolean currenciesLoaded = false;
   private final Map<String, Integer> currencyToId = new ConcurrentHashMap<>();
+  private final Object currencyLock = new Object();
 
   public RamzinexMarketClient(
-      CurrencyExchangeRepository cxRepo, ExchangeAccessService directory, RamzinexClients clients) {
-    this.cxRepo = cxRepo;
-    this.directory = directory;
-    this.clients = clients;
+      CurrencyExchangeRepository currencyExchangeRepository,
+      ExchangeAccessService exchangeAccessService,
+      RamzinexClients ramzinexClients) {
+    this.currencyExchangeRepository = currencyExchangeRepository;
+    this.exchangeAccessService = exchangeAccessService;
+    this.ramzinexClients = ramzinexClients;
   }
 
-  @jakarta.annotation.PostConstruct
+  @PostConstruct
   void init() {
-    Exchange ex = directory.requireExchange(EXCHANGE);
-    ExchangeAccount acc = directory.requireAccount(EXCHANGE, ACCOUNT);
-    this.pub = clients.publicClient(ex);
-    this.prv = clients.privateClient(ex, acc);
-    this.openRestClient = clients.openRestClient(ex);
+    Exchange exchange = exchangeAccessService.requireExchange(EXCHANGE);
+    ExchangeAccount account = exchangeAccessService.requireAccount(EXCHANGE, ACCOUNT);
+    this.publicClient = ramzinexClients.publicClient(exchange);
+    this.privateClient = ramzinexClients.privateClient(exchange, account);
+    this.authenticatedRestClient = ramzinexClients.openRestClient(exchange);
+  }
+
+  @Override
+  public String getExchangeName() {
+    return EXCHANGE;
   }
 
   @Override
   public BigDecimal getWalletBalance(String currency) {
-    final String key = requireLower(currency, "currency");
-    final Integer currencyId = resolveCurrencyId(key);
+    final String normalizedCurrency = requireLower(currency, "currency");
+    final Integer currencyId = resolveCurrencyId(normalizedCurrency);
     try {
       Map<?, ?> resp =
-          prv.get()
+          privateClient
+              .get()
               .uri(b -> b.path(P_FUNDS_AVAILABLE).build(currencyId))
               .retrieve()
               .body(Map.class);
@@ -85,13 +98,13 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
     } catch (RestClientResponseException http) {
       throw http;
     } catch (Exception ex) {
-      throw new IllegalStateException("Failed to fetch balance for " + key, ex);
+      throw new IllegalStateException("Failed to fetch balance for " + normalizedCurrency, ex);
     }
   }
 
   @Override
   public List<Quote> getQuotes() {
-    List<CurrencyExchange> entries = cxRepo.findByExchange_Name(EXCHANGE);
+    List<CurrencyExchange> entries = currencyExchangeRepository.findByExchange_Name(EXCHANGE);
     if (entries == null || entries.isEmpty()) return Collections.emptyList();
 
     long ts = Instant.now().toEpochMilli();
@@ -127,7 +140,8 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
 
     try {
       Map<?, ?> resp =
-          prv.post()
+          privateClient
+              .post()
               .uri(P_ORDER_LIMIT)
               .contentType(MediaType.APPLICATION_JSON)
               .body(body)
@@ -144,8 +158,7 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
         }
       }
       String status = resp != null ? String.valueOf(resp.get("status")) : "unknown";
-      String clientOrderId =
-          ("CLI-" + symbol + "-" + System.currentTimeMillis()).toUpperCase(Locale.ROOT);
+      String clientOrderId = createClientOrderId(symbol);
       return new OrderAck(clientOrderId, exOrderId, status);
     } catch (RestClientResponseException http) {
       throw http;
@@ -157,7 +170,11 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
     if (!StringUtils.hasText(orderId) || !DIGITS.matcher(orderId).matches()) return false;
     try {
       Map<?, ?> resp =
-          prv.post().uri(b -> b.path(P_ORDER_CANCEL).build(orderId)).retrieve().body(Map.class);
+          privateClient
+              .post()
+              .uri(b -> b.path(P_ORDER_CANCEL).build(orderId))
+              .retrieve()
+              .body(Map.class);
       return resp != null && Integer.valueOf(0).equals(resp.get("status"));
     } catch (RestClientResponseException http) {
       return false;
@@ -168,7 +185,7 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
     Integer id = symbolToPairId.get(symbol);
     if (id != null) return id;
     if (!pairsLoaded) {
-      synchronized (symbolToPairId) {
+      synchronized (pairLock) {
         if (!pairsLoaded) {
           loadPairsOnce();
           pairsLoaded = true;
@@ -186,7 +203,7 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
     Integer id = currencyToId.get(currency);
     if (id != null) return id;
     if (!currenciesLoaded) {
-      synchronized (currencyToId) {
+      synchronized (currencyLock) {
         if (!currenciesLoaded) {
           loadCurrenciesOnce();
           currenciesLoaded = true;
@@ -202,7 +219,7 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
 
   @SuppressWarnings("unchecked")
   private void loadPairsOnce() {
-    Map<?, ?> resp = openRestClient.get().uri(P_PAIRS).retrieve().body(Map.class);
+    Map<?, ?> resp = authenticatedRestClient.get().uri(P_PAIRS).retrieve().body(Map.class);
     if (resp == null) {
       throw new IllegalStateException("pairs response is empty or malformed");
     }
@@ -303,7 +320,7 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
 
   @SuppressWarnings("unchecked")
   private void loadCurrenciesOnce() {
-    Map<?, ?> resp = openRestClient.get().uri(P_CURRENCIES).retrieve().body(Map.class);
+    Map<?, ?> resp = authenticatedRestClient.get().uri(P_CURRENCIES).retrieve().body(Map.class);
     if (resp == null) {
       throw new IllegalStateException("currencies empty");
     }
@@ -343,7 +360,11 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
   private Map<?, ?> fetchOrderbook(Integer pairId) {
     try {
       Map<?, ?> resp =
-          pub.get().uri(b -> b.path(P_ORDERBOOK_ONE).build(pairId)).retrieve().body(Map.class);
+          publicClient
+              .get()
+              .uri(b -> b.path(P_ORDERBOOK_ONE).build(pairId))
+              .retrieve()
+              .body(Map.class);
       if (resp == null) return null;
       Object data = resp.get("data");
       return (data instanceof Map) ? (Map<?, ?>) data : null;
@@ -360,22 +381,22 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
 
   private static String toSymbol(CurrencyExchange cx) {
     String exSym = cx.getExchangeSymbol();
-    if (StringUtils.hasText(exSym)) return exSym.toLowerCase(Locale.ROOT);
-    String base = cx.getCurrency().getSymbol().toLowerCase(Locale.ROOT);
+    if (StringUtils.hasText(exSym)) return exSym.toLowerCase(LOCALE);
+    String base = cx.getCurrency().getSymbol().toLowerCase(LOCALE);
     String quote = "irr";
     return base + "-" + quote;
   }
 
   private static String normalize(String s) {
-    return s.toLowerCase(Locale.ROOT).replace(" ", "").replace("rial", "irr");
+    return s.toLowerCase(LOCALE).replace(" ", "").replace("rial", "irr");
   }
 
   private static String lower(String v) {
-    return v == null ? null : v.toLowerCase(Locale.ROOT);
+    return v == null ? null : v.toLowerCase(LOCALE);
   }
 
   private static String asLower(Object o) {
-    return o == null ? null : String.valueOf(o).trim().toLowerCase(Locale.ROOT);
+    return o == null ? null : String.valueOf(o).trim().toLowerCase(LOCALE);
   }
 
   private static BigDecimal requirePositive(BigDecimal v, String f) {
@@ -385,6 +406,10 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
 
   private static String requireLower(String v, String f) {
     if (!StringUtils.hasText(v)) throw new IllegalArgumentException(f + " must not be blank");
-    return v.toLowerCase(Locale.ROOT);
+    return v.toLowerCase(LOCALE);
+  }
+
+  private static String createClientOrderId(String symbol) {
+    return ("CLI-" + symbol + "-" + System.currentTimeMillis()).toUpperCase(LOCALE);
   }
 }

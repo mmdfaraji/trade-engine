@@ -48,7 +48,7 @@ class RamzinexMarketClientTest {
     CurrencyExchange cx = new CurrencyExchange();
     cx.setExchange(ex);
     cx.setCurrency(base);
-    // اگر در مدل واقعی فیلد quote داری، اینجا ست کن
+    // If the production model exposes the quote currency, set it here.
     // cx.setCurrencyQuote(quote);
     cx.setExchangeSymbol(maybeSymbol);
     em.persist(cx);
@@ -67,7 +67,7 @@ class RamzinexMarketClientTest {
       balance = client.getWalletBalance(currency);
     } catch (Exception ex) {
       System.out.println("getWalletBalance live failed: " + ex.getMessage());
-      throw ex; // چون live است، fail شدن به معنی مشکل اتصال/توکن/ارز است
+      throw ex; // Live call: failure points to connectivity/token/currency issues.
     }
 
     assertThat(balance).as("balance for %s should not be null", currency).isNotNull();
@@ -95,7 +95,7 @@ class RamzinexMarketClientTest {
     Currency eth = ccy("ETH");
     Currency irr = ccy("IRR");
 
-    // برای رمزینکس جفت‌های پرکاربرد: btc-irr و eth-irr
+    // Ramzinex frequently used pairs: btc-irr and eth-irr
     cx(ramzinex, btc, irr, "btc-irr");
     cx(ramzinex, eth, irr, "eth-irr");
 
@@ -117,7 +117,7 @@ class RamzinexMarketClientTest {
           .as("bid should be positive")
           .isNotNull()
           .isGreaterThan(BigDecimal.ZERO);
-      // معمولاً ask >= bid؛ اگر سخت‌گیری خواستی:
+      // Typically ask >= bid; uncomment for stricter validation:
       // assertThat(q.getAsk()).isGreaterThanOrEqualTo(q.getBid());
     }
   }
@@ -130,8 +130,9 @@ class RamzinexMarketClientTest {
         new OrderRequest(
             "btc-irr",
             "buy",
-            new BigDecimal("0.0001"), // حداقل مقدار خرید BTC را با قوانین رمزینکس تطبیق بده
-            new BigDecimal("100000000"), // قیمت عمداً پایین/دور از بازار تا reject محتمل باشد
+            new BigDecimal("0.0001"), // Align with Ramzinex minimum BTC order size.
+            new BigDecimal(
+                "100000000"), // Intentionally far from market price to trigger rejection.
             "IOC");
 
     Assertions.assertTimeoutPreemptively(
@@ -143,7 +144,7 @@ class RamzinexMarketClientTest {
             assertThat(ack.getStatus()).as("ack status").isNotBlank();
             assertThat(ack.getClientOrderId()).as("clientOrderId").isNotBlank();
           } catch (Exception ex) {
-            // قابل قبول: ممکن است به خاطر حداقل سفارش/Ruleها رد شود
+            // Acceptable: the exchange may reject it due to minimum order rules.
             System.out.println(
                 "submitOrder live returned exception (acceptable for opt-in test): "
                     + ex.getMessage());
@@ -155,8 +156,8 @@ class RamzinexMarketClientTest {
   @DisplayName("Cancel order: opt-in and requires token")
   @Timeout(20)
   void cancelOrder_live_isOptInAndRequiresToken() {
-    // توجه: پیاده‌سازی RamzinexMarketClient برای cancel نیازمند numeric order_id است.
-    boolean ok = client.cancelOrder("0"); // شناسهٔ غیرواقعی → معمولاً false
+    // Note: Ramzinex cancel implementation requires a numeric order_id.
+    boolean ok = client.cancelOrder("0"); // Non-real identifier → typically false
     assertThat(ok).isIn(true, false);
   }
 }
