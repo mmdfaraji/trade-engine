@@ -1,7 +1,7 @@
 package com.arbitrage.service;
 
 import com.arbitrage.entities.Exchange;
-import com.arbitrage.respository.ExchangeRepository;
+import com.arbitrage.repository.ExchangeRepository;
 import com.arbitrage.service.api.ExchangeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

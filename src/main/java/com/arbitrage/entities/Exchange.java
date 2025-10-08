@@ -1,17 +1,16 @@
 package com.arbitrage.entities;
 
 import com.arbitrage.enums.ExchangeStatus;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "exchanges")
+@Table(
+    name = "exchanges",
+    uniqueConstraints = @UniqueConstraint(name = "ux_exchanges_name", columnNames = "name"))
 @Getter
 @Setter
 @NoArgsConstructor

@@ -1,9 +1,6 @@
 package com.arbitrage.entities;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import java.math.BigDecimal;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -12,7 +9,16 @@ import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
 @Entity
-@Table(name = "balances")
+@Table(
+    name = "balances",
+    uniqueConstraints =
+        @UniqueConstraint(
+            name = "ux_balances_account_currency",
+            columnNames = {"exchange_account_id", "currency_id"}),
+    indexes = {
+      @Index(name = "ix_balances_account", columnList = "exchange_account_id"),
+      @Index(name = "ix_balances_currency", columnList = "currency_id")
+    })
 @Getter
 @Setter
 @NoArgsConstructor

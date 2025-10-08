@@ -1,7 +1,7 @@
 package com.arbitrage.dal;
 
 import com.arbitrage.entities.Currency;
-import com.arbitrage.respository.CurrencyRepository;
+import com.arbitrage.repository.CurrencyRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

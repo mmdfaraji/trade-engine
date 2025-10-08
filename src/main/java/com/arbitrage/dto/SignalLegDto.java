@@ -17,7 +17,7 @@ public class SignalLegDto {
 
   // Incoming: "Exchange" (e.g. "ramzinex")
   @JsonProperty("Exchange")
-  private String exchangeCode;
+  private String exchange;
 
   // Incoming: "market" (e.g. "USDT/IRR")
   @JsonProperty("market")

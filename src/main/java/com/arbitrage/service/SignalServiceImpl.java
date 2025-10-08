@@ -7,8 +7,8 @@ import com.arbitrage.entities.Pair;
 import com.arbitrage.entities.Signal;
 import com.arbitrage.entities.SignalLeg;
 import com.arbitrage.enums.SignalStatus;
-import com.arbitrage.respository.SignalLegRepository;
-import com.arbitrage.respository.SignalRepository;
+import com.arbitrage.repository.SignalLegRepository;
+import com.arbitrage.repository.SignalRepository;
 import com.arbitrage.service.api.ExchangeService;
 import com.arbitrage.service.api.PairService;
 import com.arbitrage.service.api.SignalService;
@@ -54,7 +54,7 @@ public class SignalServiceImpl implements SignalService {
     if (dto.getLegs() != null) {
       int i = 0;
       for (SignalLegDto legDto : dto.getLegs()) {
-        Exchange exchange = exchangeService.resolveExchangeByName(legDto.getExchangeCode());
+        Exchange exchange = exchangeService.resolveExchangeByName(legDto.getExchange());
         Pair pair = pairService.resolvePairBySymbol(legDto.getMarket());
 
         SignalLeg leg = SignalAssembler.toLegEntity(legDto, signal, exchange, pair);
@@ -64,7 +64,7 @@ public class SignalServiceImpl implements SignalService {
             "Saved leg#{} for signalId={} -> exchange={}, market={}, side={}, price={}, qty={}, tif={}",
             i++,
             signal.getId(),
-            legDto.getExchangeCode(),
+            legDto.getExchange(),
             legDto.getMarket(),
             legDto.getSide(),
             legDto.getPrice(),

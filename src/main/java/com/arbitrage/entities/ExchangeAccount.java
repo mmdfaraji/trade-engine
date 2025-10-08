@@ -1,9 +1,6 @@
 package com.arbitrage.entities;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -11,7 +8,12 @@ import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
 @Entity
-@Table(name = "exchange_accounts")
+@Table(
+    name = "exchange_accounts",
+    indexes =
+        @Index(
+            name = "ix_exchange_accounts_exchange_is_primary",
+            columnList = "exchange_id,is_primary"))
 @Getter
 @Setter
 @NoArgsConstructor

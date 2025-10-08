@@ -1,4 +1,4 @@
-package com.arbitrage.respository;
+package com.arbitrage.repository;
 
 import com.arbitrage.entities.Pair;
 import java.util.Optional;

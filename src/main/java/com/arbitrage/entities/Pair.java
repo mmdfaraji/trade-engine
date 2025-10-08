@@ -1,9 +1,6 @@
 package com.arbitrage.entities;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -11,7 +8,9 @@ import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
 @Entity
-@Table(name = "pairs")
+@Table(
+    name = "pairs",
+    uniqueConstraints = @UniqueConstraint(name = "ux_pairs_symbol", columnNames = "symbol"))
 @Getter
 @Setter
 @NoArgsConstructor

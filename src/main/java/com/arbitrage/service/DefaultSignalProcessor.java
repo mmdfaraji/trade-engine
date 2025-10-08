@@ -1,6 +1,8 @@
 package com.arbitrage.service;
 
 import com.arbitrage.dto.SignalMessageDto;
+import com.arbitrage.dto.plan.BalanceReservationResultDto;
+import com.arbitrage.dto.plan.ExecutionPlanDto;
 import com.arbitrage.dto.processor.ProcessResult;
 import com.arbitrage.dto.processor.Rejection;
 import com.arbitrage.dto.processor.SignalContext;
@@ -10,6 +12,7 @@ import com.arbitrage.enums.SignalStatus;
 import com.arbitrage.enums.ValidationPhase;
 import com.arbitrage.service.api.SignalProcessor;
 import com.arbitrage.service.api.SignalService;
+import com.arbitrage.service.balance.BalanceReservationService;
 import com.arbitrage.service.validators.api.FreshnessValidator;
 import java.time.Clock;
 import java.util.List;
@@ -24,6 +27,7 @@ import org.springframework.stereotype.Service;
 public class DefaultSignalProcessor implements SignalProcessor {
   private final SignalService signalService;
   private final FreshnessValidator freshnessValidator;
+  private final BalanceReservationService balanceReservationService;
   private final Clock clock;
 
   @Override
@@ -75,8 +79,7 @@ public class DefaultSignalProcessor implements SignalProcessor {
         log.warn("Status update to REJECTED failed: signalId={}", id, e);
       }
 
-      List<Rejection> rejections =
-          fresh.getRejection().map(java.util.List::of).orElse(java.util.List.of());
+      List<Rejection> rejections = fresh.getRejection().map(List::of).orElse(List.of());
       log.warn(
           "Rejected at freshness: externalId={}, signalId={}, code={}, msg={}",
           dto.getSignalId(),
@@ -88,6 +91,32 @@ public class DefaultSignalProcessor implements SignalProcessor {
     }
 
     log.info("Freshness check passed: externalId={}, signalId={}", dto.getSignalId(), id);
+
+    BalanceReservationResultDto br = balanceReservationService.reserveForSignal(ctx);
+    if (!br.getResult().isOk()) {
+      try {
+        signalService.updateStatus(id, SignalStatus.REJECTED);
+      } catch (Exception e) {
+        log.warn("Status update to REJECTED failed: signalId={}", id, e);
+      }
+      java.util.List<Rejection> reasons =
+          br.getResult().getRejection().map(java.util.List::of).orElse(java.util.List.of());
+      log.warn(
+          "Rejected at balance/reservation: externalId={}, signalId={}, code={}, msg={}",
+          dto.getSignalId(),
+          id,
+          reasons.isEmpty() ? "n/a" : reasons.get(0).getCode(),
+          reasons.isEmpty() ? "n/a" : reasons.get(0).getMessage());
+      return ProcessResult.rejected(id, reasons);
+    }
+
+    ExecutionPlanDto plan = br.getPlan();
+    log.info(
+        "Balance & reservation passed: externalId={}, signalId={}, legs={}",
+        dto.getSignalId(),
+        id,
+        plan.getLegs().size());
+
     return ProcessResult.accepted(id);
   }
 }
