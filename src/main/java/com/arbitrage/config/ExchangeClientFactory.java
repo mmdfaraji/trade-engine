@@ -11,7 +11,7 @@ import org.springframework.web.client.RestClient;
 @Component
 public class ExchangeClientFactory {
 
-  public RestClient buildPublic(Exchange exchange) {
+  public RestClient buildPublicClient(Exchange exchange) {
     HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
     JdkClientHttpRequestFactory rf = new JdkClientHttpRequestFactory(http);
     rf.setReadTimeout(Duration.ofSeconds(6));
@@ -23,7 +23,7 @@ public class ExchangeClientFactory {
         .build();
   }
 
-  public RestClient.Builder buildPrivate(Exchange exchange) {
+  public RestClient.Builder buildPrivateClient(Exchange exchange) {
     HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
     JdkClientHttpRequestFactory rf = new JdkClientHttpRequestFactory(http);
     rf.setReadTimeout(Duration.ofSeconds(8));
@@ -34,13 +34,13 @@ public class ExchangeClientFactory {
         .defaultHeader("User-Agent", "Trade-Engine");
   }
 
-  public RestClient buildPublic(String privateApiUrl) {
+  public RestClient buildClient(String apiUrl) {
     HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
     JdkClientHttpRequestFactory rf = new JdkClientHttpRequestFactory(http);
     rf.setReadTimeout(Duration.ofSeconds(6));
 
     return RestClient.builder()
-        .baseUrl(privateApiUrl)
+        .baseUrl(apiUrl)
         .requestFactory(rf)
         .defaultHeader("User-Agent", "Trade-Engine")
         .build();

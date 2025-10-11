@@ -17,14 +17,14 @@ public class RamzinexClientsConfig {
 
   private final ExchangeAccessService accessService;
 
-  private final String exchangeName = "RAMZINEX";
+  private static final String EXCHANGE_NAME = "RAMZINEX";
 
   @Bean
   public RestClient ramzinexOpenRestClient(
       @Value("${app.http.timeout.connect:PT2S}") Duration connectTimeout,
       @Value("${app.http.timeout.read:PT4S}") Duration readTimeout) {
 
-    Exchange ex = accessService.requireExchange(exchangeName);
+    Exchange ex = accessService.requireExchange(EXCHANGE_NAME);
 
     var http = HttpClient.newBuilder().connectTimeout(connectTimeout).build();
     var f = new JdkClientHttpRequestFactory(http);

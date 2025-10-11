@@ -16,13 +16,13 @@ public class NobitexClients {
   }
 
   public RestClient publicClient(Exchange ex) {
-    return factory.buildPublic(ex);
+    return factory.buildPublicClient(ex);
   }
 
   public RestClient privateClient(Exchange ex, ExchangeAccount acc) {
     String token = Objects.requireNonNull(acc.getApiKey(), "Nobitex token (api_key) is null");
     return factory
-        .buildPrivate(ex)
+        .buildPrivateClient(ex)
         .requestInterceptor(
             (req, body, exec) -> {
               req.getHeaders().set("Authorization", "Token " + token);

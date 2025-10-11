@@ -16,7 +16,8 @@ import org.springframework.web.client.RestClient;
 @Component
 public class RamzinexTokenProvider {
 
-  public static final String PATH_GET_TOKEN = "/exchange/api/v1.0/exchange/auth/api_key/getToken";
+  private static final String PATH_GET_TOKEN = "/exchange/api/v1.0/exchange/auth/api_key/getToken";
+
   private final ExchangeAccessService directory;
   private final ExchangeClientFactory factory;
   private final Map<String, Cached> cache = new ConcurrentHashMap<>();
@@ -38,7 +39,7 @@ public class RamzinexTokenProvider {
 
       Exchange ex = directory.requireExchange(exchangeName);
       ExchangeAccount acc = directory.requireAccount(exchangeName, accountLabel);
-      RestClient openRestClient = factory.buildPublic(ex.getPrivateApiUrl());
+      RestClient openRestClient = factory.buildClient(ex.getPrivateApiUrl());
 
       Map<?, ?> response =
           openRestClient

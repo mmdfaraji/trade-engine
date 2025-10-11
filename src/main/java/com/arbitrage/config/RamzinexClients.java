@@ -17,12 +17,12 @@ public class RamzinexClients {
   }
 
   public RestClient publicClient(Exchange ex) {
-    return factory.buildPublic(ex);
+    return factory.buildPublicClient(ex);
   }
 
   public RestClient privateClient(Exchange ex, ExchangeAccount acc) {
     return factory
-        .buildPrivate(ex)
+        .buildPrivateClient(ex)
         .defaultHeader("x-api-key", acc.getSecretKey())
         .requestInterceptor(
             (req, body, exec) -> {
@@ -35,7 +35,7 @@ public class RamzinexClients {
 
   public RestClient openRestClient(Exchange ex) {
     return factory
-        .buildPrivate(ex)
+        .buildPrivateClient(ex)
         .requestInterceptor((req, body, exec) -> exec.execute(req, body))
         .build();
   }
