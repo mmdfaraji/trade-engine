@@ -1,7 +1,5 @@
 package com.arbitrage.service;
 
-import com.arbitrage.dto.SignalLegDto;
-import com.arbitrage.dto.SignalMessageDto;
 import com.arbitrage.entities.Exchange;
 import com.arbitrage.entities.Pair;
 import com.arbitrage.entities.Signal;

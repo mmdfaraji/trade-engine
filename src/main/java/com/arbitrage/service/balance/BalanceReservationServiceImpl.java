@@ -1,7 +1,5 @@
 package com.arbitrage.service.balance;
 
-import com.arbitrage.dto.SignalLegDto;
-import com.arbitrage.dto.SignalMessageDto;
 import com.arbitrage.dto.balance.BucketKeyDto;
 import com.arbitrage.dto.balance.ResolvedLegDto;
 import com.arbitrage.dto.plan.BalanceReservationResultDto;

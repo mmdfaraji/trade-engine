@@ -5,31 +5,30 @@ import java.math.BigDecimal;
 import lombok.Builder;
 import lombok.Value;
 
+/**
+ * Execution-ready leg plan (phase-2 output). It contains resolved identifiers and computed amounts.
+ */
 @Value
 @Builder
 public class ExecutionLegPlanDto {
-  // Input resolution & identity
-  int index; // input leg index
-  Long exchangeId; // resolved exchange id
-  Long exchangeAccountId; // chosen primary account id for exchange
-  Long pairId; // resolved pair id
+  int index;
 
-  // Currencies
-  Long baseCurrencyId; // from pair
-  Long quoteCurrencyId; // from pair
+  Long exchangeId;
+  Long exchangeAccountId;
+  Long pairId;
+
+  Long baseCurrencyId;
+  Long quoteCurrencyId;
   Long spendCurrencyId; // BUY->quote, SELL->base
   Long receiveCurrencyId; // BUY->base,  SELL->quote
 
-  // For logs
-  String exchangeName; // for logs
-  String marketSymbol; // pairs.symbol (internal standard)
+  String exchangeName;
+  String marketSymbol; // pairs.symbol
 
-  // Input numbers
-  OrderSide side; // BUY | SELL
-  BigDecimal reqQty; // requested qty from DTO
-  BigDecimal price; // price from DTO
+  OrderSide side;
+  BigDecimal reqQty; // requested base qty
+  BigDecimal price;
 
-  // Computed
   BigDecimal requiredSpend; // BUY: qty*price (quote), SELL: qty (base)
-  BigDecimal execQty; // == reqQty in phase-2 (all-or-nothing policy)
+  BigDecimal execQty; // phase-2: equals reqQty if reserved; else 0
 }

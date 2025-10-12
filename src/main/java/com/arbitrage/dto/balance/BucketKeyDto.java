@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 
+/** Reservation bucket key: (exchangeAccountId, spendCurrencyId). */
 @Getter
 @AllArgsConstructor
 @EqualsAndHashCode

@@ -1,6 +1,5 @@
 package com.arbitrage.service.api;
 
-import com.arbitrage.dto.SignalMessageDto;
 import com.arbitrage.enums.SignalStatus;
 import java.util.UUID;
 

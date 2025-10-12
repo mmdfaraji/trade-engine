@@ -1,6 +1,5 @@
 package com.arbitrage.dto.processor;
 
-import com.arbitrage.dto.SignalMessageDto;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;

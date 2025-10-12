@@ -1,6 +1,5 @@
 package com.arbitrage.consumer;
 
-import com.arbitrage.dto.SignalMessageDto;
 import com.arbitrage.dto.processor.ProcessResult;
 import com.arbitrage.enums.AckAction;
 import com.arbitrage.service.api.SignalProcessor;
