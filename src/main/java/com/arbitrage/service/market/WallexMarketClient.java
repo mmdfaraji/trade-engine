@@ -1,0 +1,294 @@
+package com.arbitrage.service.market;
+
+import com.arbitrage.config.WallexClients;
+import com.arbitrage.entities.CurrencyExchange;
+import com.arbitrage.entities.Exchange;
+import com.arbitrage.entities.ExchangeAccount;
+import com.arbitrage.model.OrderAck;
+import com.arbitrage.model.OrderRequest;
+import com.arbitrage.model.Quote;
+import com.arbitrage.respository.CurrencyExchangeRepository;
+import com.arbitrage.service.ExchangeAccessService;
+import com.arbitrage.service.api.ExchangeMarketClient;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import jakarta.annotation.PostConstruct;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.*;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.util.Assert;
+import org.springframework.util.StringUtils;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
+
+@Slf4j
+@Component
+public class WallexMarketClient implements ExchangeMarketClient {
+
+  private static final Locale LOCALE = Locale.ROOT;
+  private static final String EXCHANGE = "WALLEX";
+  private static final String ACCOUNT = "Wallex";
+  private static final String PATH_MARKETS = "/hector/web/v1/markets";
+  private static final String P_FUNDS_AVAILABLE = "/v1/account/balances";
+  private static final String PATH_ORDER_CREATE = "/v1/account/orders";
+  private static final String P_ORDER_CANCEL = "/v1/account/orders/{client_id}";
+  private static final Pattern DIGITS = Pattern.compile("\\d+");
+
+  private final CurrencyExchangeRepository currencyExchangeRepository;
+  private final ExchangeAccessService exchangeAccessService;
+  private final WallexClients wallexClients;
+  private RestClient publicClient;
+
+  public WallexMarketClient(
+      CurrencyExchangeRepository currencyExchangeRepository,
+      ExchangeAccessService exchangeAccessService,
+      WallexClients wallexClients) {
+    this.currencyExchangeRepository = currencyExchangeRepository;
+    this.exchangeAccessService = exchangeAccessService;
+    this.wallexClients = wallexClients;
+  }
+
+  @PostConstruct
+  void init() {
+    Exchange exchange = exchangeAccessService.requireExchange(EXCHANGE);
+    ExchangeAccount account = exchangeAccessService.requireAccount(EXCHANGE, ACCOUNT);
+    this.publicClient = wallexClients.client(exchange, account);
+  }
+
+  @Override
+  public String getExchangeName() {
+    return EXCHANGE;
+  }
+
+  @Override
+  public BigDecimal getWalletBalance(String currency) {
+    CurrencyExchange currencyExchange =
+        currencyExchangeRepository.findByExchange_NameAndCurrency_Name(EXCHANGE, currency);
+    if (currencyExchange == null) throw new IllegalStateException("Empty funds response");
+
+    try {
+      Map<?, ?> response =
+          publicClient
+              .get()
+              .uri(uriBuilder -> uriBuilder.path(P_FUNDS_AVAILABLE).build())
+              .retrieve()
+              .body(Map.class);
+
+      if (response == null) throw new IllegalStateException("Empty funds response");
+
+      Map result = (Map) response.get("result");
+      Map balances = (Map) result.get("balances");
+      Map data = (Map) balances.get(currencyExchange.getExchangeSymbol());
+      return new BigDecimal(String.valueOf(data.get("value")));
+    } catch (RestClientResponseException http) {
+      throw http;
+    } catch (Exception ex) {
+      throw new IllegalStateException("Failed to fetch balance for " + currency, ex);
+    }
+  }
+
+  @Override
+  public List<Quote> getQuotes() {
+    List<CurrencyExchange> exchanges = currencyExchangeRepository.findByExchange_Name(EXCHANGE);
+    if (exchanges == null || exchanges.isEmpty()) return Collections.emptyList();
+
+    long timestamp = Instant.now().toEpochMilli();
+    Map<String, WallexMarket> marketMap = fetchMarketsIndex();
+
+    return exchanges.stream()
+        .map(cx -> toQuote(cx, marketMap, timestamp))
+        .filter(Objects::nonNull)
+        .collect(Collectors.toList());
+  }
+
+  private Quote toQuote(CurrencyExchange cx, Map<String, WallexMarket> marketMap, long timestamp) {
+    String symbol = resolveSymbol(cx);
+    String[] parts = symbol.split("-");
+    if (parts.length != 2) return null;
+
+    BigDecimal ask = bestPrice(marketMap, parts[0], parts[1], "sell");
+    BigDecimal bid = bestPrice(marketMap, parts[0], parts[1], "buy");
+
+    return (ask != null && bid != null) ? new Quote(symbol, bid, ask, timestamp) : null;
+  }
+
+  private String resolveSymbol(CurrencyExchange cx) {
+    if (StringUtils.hasText(cx.getExchangeSymbol()))
+      return cx.getExchangeSymbol().toLowerCase(LOCALE);
+    return cx.getCurrency().getSymbol().toLowerCase(LOCALE) + "-usdt";
+  }
+
+  private Map<String, WallexMarket> fetchMarketsIndex() {
+    try {
+      WallexMarketsResponse response =
+          publicClient
+              .get()
+              .uri(PATH_MARKETS)
+              .accept(MediaType.APPLICATION_JSON)
+              .retrieve()
+              .body(WallexMarketsResponse.class);
+
+      if (response == null
+          || response.getResult() == null
+          || response.getResult().getMarkets() == null) return Collections.emptyMap();
+
+      return response.getResult().getMarkets().stream()
+          .collect(
+              Collectors.toMap(
+                  m ->
+                      m.getBaseAsset().toLowerCase(LOCALE)
+                          + "-"
+                          + m.getQuoteAsset().toLowerCase(LOCALE),
+                  m -> m,
+                  (a, b) -> a));
+    } catch (Exception e) {
+      log.warn("Error fetching Wallex market index: {}", e.getMessage());
+      return Collections.emptyMap();
+    }
+  }
+
+  private BigDecimal bestPrice(
+      Map<String, WallexMarket> marketMap, String base, String quote, String side) {
+    WallexMarket market = marketMap.get(base.toLowerCase(LOCALE) + "-" + quote.toLowerCase(LOCALE));
+    if (market == null || market.getFairPrice() == null) return null;
+
+    String priceStr =
+        "sell".equals(side) ? market.getFairPrice().getAsk() : market.getFairPrice().getBid();
+    return (priceStr != null && !priceStr.isBlank()) ? new BigDecimal(priceStr) : null;
+  }
+
+  @Override
+  public OrderAck submitOrder(OrderRequest request) {
+    String symbol = normalizeSymbol(requireText(request.getSymbol(), "symbol"));
+    String side = requireLower(request.getSide(), "side");
+    BigDecimal qty = requirePositive(request.getQty(), "qty");
+    BigDecimal price = requirePositive(request.getPrice(), "price");
+    String clientOrderId = createClientOrderId(symbol);
+
+    Map<String, Object> body =
+        new HashMap<>() {
+          {
+            put("symbol", symbol);
+            put("side", side);
+            put("type", "LIMIT");
+            put("price", price.toPlainString());
+            put("quantity", qty.toPlainString());
+            put("client_id", clientOrderId);
+          }
+        };
+
+    try {
+      Map<?, ?> response =
+          publicClient
+              .post()
+              .uri(PATH_ORDER_CREATE)
+              .contentType(MediaType.APPLICATION_JSON)
+              .accept(MediaType.APPLICATION_JSON)
+              .body(body)
+              .retrieve()
+              .body(Map.class);
+
+      if (response != null && response.get("result") instanceof Map) {
+        Map result = (Map) response.get("result");
+        String exOrderId = String.valueOf(result.get("clientOrderId"));
+        String status =
+            Optional.ofNullable(result.get("status")).map(String::valueOf).orElse("unknown");
+        return new OrderAck(clientOrderId, exOrderId, status);
+      }
+      return new OrderAck(clientOrderId, null, "unknown");
+
+    } catch (RestClientException e) {
+      log.error("Wallex order submit error: {}", e.getMessage(), e);
+      throw e;
+    }
+  }
+
+  @Override
+  public boolean cancelOrder(String orderId) {
+    if (!StringUtils.hasText(orderId) || !DIGITS.matcher(orderId).matches()) return false;
+    try {
+      Map<?, ?> response =
+          publicClient
+              .delete()
+              .uri(uriBuilder -> uriBuilder.path(P_ORDER_CANCEL).build(orderId))
+              .retrieve()
+              .body(Map.class);
+      return response != null && Integer.valueOf(0).equals(response.get("status"));
+    } catch (RestClientException e) {
+      log.warn("Cancel order failed: {}", e.getMessage());
+      return false;
+    }
+  }
+
+  private static String normalizeSymbol(String s) {
+    return s.trim().replace("-", "").replace("_", "").toUpperCase(LOCALE);
+  }
+
+  private static String requireText(String v, String name) {
+    Assert.hasText(v, name + " must not be blank");
+    return v;
+  }
+
+  private static String requireLower(String v, String name) {
+    Assert.hasText(v, name + " must not be blank");
+    return v.toLowerCase(LOCALE);
+  }
+
+  private static BigDecimal requirePositive(BigDecimal v, String name) {
+    Assert.notNull(v, name + " must not be null");
+    if (v.signum() <= 0) throw new IllegalArgumentException(name + " must be positive");
+    return v;
+  }
+
+  private static String createClientOrderId(String symbol) {
+    return symbol
+        + "-"
+        + Instant.now().toEpochMilli()
+        + "-"
+        + UUID.randomUUID().toString().substring(0, 8);
+  }
+
+  @Data
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  static class WallexMarket {
+    private String symbol;
+
+    @JsonProperty("base_asset")
+    private String baseAsset;
+
+    @JsonProperty("quote_asset")
+    private String quoteAsset;
+
+    @JsonProperty("fair_price")
+    private FairPrice fairPrice;
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    static class FairPrice {
+      private String ask;
+      private String bid;
+      private String threshold;
+    }
+  }
+
+  @Data
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  static class WallexMarketsResult {
+    private List<WallexMarket> markets;
+  }
+
+  @Data
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  static class WallexMarketsResponse {
+    private WallexMarketsResult result;
+    private boolean success;
+    private String message;
+  }
+}

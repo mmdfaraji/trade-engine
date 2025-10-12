@@ -81,7 +81,12 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
 
   @Override
   public BigDecimal getWalletBalance(String currency) {
-    final String normalizedCurrency = requireLower(currency, "currency");
+    CurrencyExchange currencyExchange =
+        currencyExchangeRepository.findByExchange_NameAndCurrency_Name(EXCHANGE, currency);
+    if (currencyExchange == null) throw new IllegalStateException("Empty funds response");
+
+    final String normalizedCurrency =
+        requireLower(currencyExchange.getExchangeSymbol(), "currency");
     final Integer currencyId = resolveCurrencyId(normalizedCurrency);
     try {
       Map<?, ?> resp =
@@ -111,6 +116,8 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
     List<Quote> out = new ArrayList<>(entries.size());
 
     for (CurrencyExchange cx : entries) {
+      // ToDo: remove this condition
+      if (cx.getCurrency().getName() != null && cx.getCurrency().getName().equals("RIAL")) continue;
       String symbol = toSymbol(cx);
       Integer pairId = resolvePairId(symbol);
       Map<?, ?> ob = fetchOrderbook(pairId);
@@ -380,8 +387,8 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
   }
 
   private static String toSymbol(CurrencyExchange cx) {
-    String exSym = cx.getExchangeSymbol();
-    if (StringUtils.hasText(exSym)) return exSym.toLowerCase(LOCALE);
+    // String exSym = cx.getExchangeSymbol();
+    // if (StringUtils.hasText(exSym)) return exSym.toLowerCase(LOCALE);
     String base = cx.getCurrency().getSymbol().toLowerCase(LOCALE);
     String quote = "irr";
     return base + "-" + quote;

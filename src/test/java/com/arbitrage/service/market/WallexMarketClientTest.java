@@ -23,11 +23,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @ActiveProfiles("localtest")
-class RamzinexMarketClientTest {
+class WallexMarketClientTest {
 
   @Autowired EntityManager em;
   @Autowired CurrencyExchangeRepository currencyExchangeRepository;
-  @Autowired RamzinexMarketClient client;
+  @Autowired WallexMarketClient client;
 
   private Exchange ex(String name) {
     Exchange e = new Exchange();
@@ -87,19 +87,19 @@ class RamzinexMarketClientTest {
   @Transactional
   @Timeout(20)
   void getQuotes_realCall_returnsBidAsk_forRegisteredPairs() {
-    Exchange ramzinex = ex("RAMZINEX");
+    Exchange wallex = ex("WALLEX");
 
     Currency btc = ccy("BTC");
     Currency eth = ccy("ETH");
     Currency irr = ccy("IRR");
 
-    // Ramzinex frequently used pairs: btc-irr and eth-irr
-    cx(ramzinex, btc, irr, "btc-irr");
-    cx(ramzinex, eth, irr, "eth-irr");
+    // Wallex frequently used pairs: btc-irr and eth-irr
+    cx(wallex, btc, irr, "btc-tmn");
+    cx(wallex, eth, irr, "eth-tmn");
 
     em.flush();
 
-    // --- Act: real HTTP calls to Ramzinex public API orderbooks ---
+    // --- Act: real HTTP calls to Wallex public API orderbooks ---
     List<Quote> quotes = client.getQuotes();
 
     // --- Assert ---
@@ -126,9 +126,9 @@ class RamzinexMarketClientTest {
   void submitOrder_live_isOptInAndRequiresToken() {
     var req =
         new OrderRequest(
-            "btc-irr",
-            "buy",
-            new BigDecimal("0.0001"), // Align with Ramzinex minimum BTC order size.
+            "btcusdt",
+            "BUY",
+            new BigDecimal("0.0001"), // Align with Wallex minimum BTC order size.
             new BigDecimal(
                 "100000000"), // Intentionally far from market price to trigger rejection.
             "IOC");
@@ -154,7 +154,7 @@ class RamzinexMarketClientTest {
   @DisplayName("Cancel order: opt-in and requires token")
   @Timeout(20)
   void cancelOrder_live_isOptInAndRequiresToken() {
-    // Note: Ramzinex cancel implementation requires a numeric order_id.
+    // Note: Wallex cancel implementation requires a numeric order_id.
     boolean ok = client.cancelOrder("0"); // Non-real identifier → typically false
     assertThat(ok).isIn(true, false);
   }

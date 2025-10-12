@@ -1,20 +1,11 @@
 package com.arbitrage.service.market;
 
-import com.arbitrage.model.Quote;
-import com.arbitrage.service.api.ExchangeMarketClient;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 @Service
 public class PriceService {
 
-  private static final Locale LOCALE = Locale.ROOT;
+  /*  private static final Locale LOCALE = Locale.ROOT;
 
   private final Map<String, ExchangeMarketClient> clientsByExchange;
 
@@ -38,5 +29,5 @@ public class PriceService {
       throw new IllegalArgumentException("No market client registered for " + exchangeName);
     }
     return client.getQuotes();
-  }
+  }*/
 }

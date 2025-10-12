@@ -71,7 +71,12 @@ public class NobitexMarketClient implements ExchangeMarketClient {
 
   @Override
   public BigDecimal getWalletBalance(String currency) {
-    String normalizedCurrency = normalize(currency, "currency");
+    CurrencyExchange currencyExchange =
+        currencyExchangeRepository.findByExchange_NameAndCurrency_Name(EXCHANGE, currency);
+    if (currencyExchange == null) throw new IllegalStateException("Empty funds response");
+
+    String normalizedCurrency = normalize(currencyExchange.getExchangeSymbol(), "currency");
+
     try {
       MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
       form.add("currency", normalizedCurrency);

@@ -12,7 +12,6 @@ import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
-import java.util.Locale;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,8 +58,7 @@ class NobitexMarketClientTest {
   @DisplayName("Wallet balance: non-negative when token present")
   @Timeout(15)
   void getWalletBalance_live_returnsNonNegative_whenTokenPresent() {
-    String currency =
-        System.getenv().getOrDefault("NOBITEX_TEST_CCY", "rls").toLowerCase(Locale.ROOT);
+    String currency = "RIAL";
 
     BigDecimal balance;
     try {
