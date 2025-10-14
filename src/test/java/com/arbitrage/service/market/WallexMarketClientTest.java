@@ -8,6 +8,7 @@ import com.arbitrage.entities.Exchange;
 import com.arbitrage.model.OrderRequest;
 import com.arbitrage.model.Quote;
 import com.arbitrage.respository.CurrencyExchangeRepository;
+import com.arbitrage.service.exchanges.WallexMarketClient;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.Duration;

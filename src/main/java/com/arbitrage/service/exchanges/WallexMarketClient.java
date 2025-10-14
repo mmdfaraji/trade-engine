@@ -1,4 +1,4 @@
-package com.arbitrage.service.market;
+package com.arbitrage.service.exchanges;
 
 import com.arbitrage.config.WallexClients;
 import com.arbitrage.entities.CurrencyExchange;
@@ -9,7 +9,7 @@ import com.arbitrage.model.OrderRequest;
 import com.arbitrage.model.Quote;
 import com.arbitrage.respository.CurrencyExchangeRepository;
 import com.arbitrage.service.ExchangeAccessService;
-import com.arbitrage.service.api.ExchangeMarketClient;
+import com.arbitrage.service.ExchangeMarketClient;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.annotation.PostConstruct;

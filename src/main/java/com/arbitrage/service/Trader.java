@@ -1,4 +1,4 @@
-package com.arbitrage.service.api;
+package com.arbitrage.service;
 
 import com.arbitrage.dto.OrderInstructionDto;
 
