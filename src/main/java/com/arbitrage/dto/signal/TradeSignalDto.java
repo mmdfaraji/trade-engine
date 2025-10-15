@@ -2,7 +2,6 @@ package com.arbitrage.dto.signal;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import java.time.Instant;
 import java.util.List;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -24,13 +23,6 @@ public class TradeSignalDto {
   private String clazz;
 
   private MetaDto meta;
-
-  // Expected to be included in JSON soon
-  private Long ttlMs; // required for freshness policy
-  private Long maxLatencyMs; // optional
-
-  // May be set by consumer from NATS metadata timestamp if not present
-  private Instant createdAt;
 
   private List<OrderInstructionDto> orders;
 }

@@ -1,121 +1,75 @@
 package com.arbitrage.service;
 
-import com.arbitrage.dto.plan.BalanceReservationResultDto;
-import com.arbitrage.dto.plan.ExecutionPlanDto;
 import com.arbitrage.dto.processor.ProcessResult;
-import com.arbitrage.dto.processor.Rejection;
 import com.arbitrage.dto.processor.SignalContext;
 import com.arbitrage.dto.processor.StepResult;
-import com.arbitrage.enums.RejectCode;
-import com.arbitrage.enums.SignalStatus;
+import com.arbitrage.dto.signal.TradeSignalDto;
 import com.arbitrage.enums.ValidationPhase;
 import com.arbitrage.service.api.SignalProcessor;
-import com.arbitrage.service.api.SignalService;
-import com.arbitrage.service.balance.BalanceReservationService;
-import com.arbitrage.service.validators.api.FreshnessValidator;
+import com.arbitrage.service.api.SignalValidator;
+import com.arbitrage.service.workflow.steps.DecisionService;
+import com.arbitrage.service.workflow.steps.PersistSignalStep;
 import java.time.Clock;
-import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+/**
+ * Orchestrates the pipeline without performing any side-effectful reservation. Steps: 0) Persist
+ * (via PersistSignalStep) 1) Freshness validation (SignalValidator) + decision step 2) Balance
+ * sufficiency validation (read-only) + decision step If all pass, returns
+ * ProcessResult.accepted(...) with saved signalId.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class DefaultSignalProcessor implements SignalProcessor {
-  private final SignalService signalService;
-  private final FreshnessValidator freshnessValidator;
-  private final BalanceReservationService balanceReservationService;
+
+  private final PersistSignalStep persistSignalStep;
+  private final SignalValidator signalValidator;
+  private final DecisionService decisionService;
   private final Clock clock;
 
   @Override
-  public ProcessResult process(SignalMessageDto dto) {
+  public ProcessResult process(TradeSignalDto dto) {
 
-    UUID id;
-    try {
-      id = signalService.saveSignal(dto);
-    } catch (IllegalArgumentException iae) {
-      Rejection rej =
-          Rejection.builder()
-              .code(RejectCode.REFERENCE_NOT_FOUND)
-              .message(iae.getMessage())
-              .phase(ValidationPhase.PHASE0_PERSIST)
-              .validator("SignalService")
-              .occurredAt(clock.instant())
-              .build();
-      log.warn(
-          "Persist step rejected: externalId={}, reason={}", dto.getSignalId(), iae.getMessage());
-      return ProcessResult.rejected(null, List.of(rej)); // ACK
-    } catch (Exception ex) {
-      Rejection rej =
-          Rejection.builder()
-              .code(RejectCode.INTERNAL_ERROR)
-              .message("Unexpected error at persist step")
-              .phase(ValidationPhase.PHASE0_PERSIST)
-              .validator("SignalService")
-              .occurredAt(clock.instant())
-              .detail("error", ex.getMessage())
-              .build();
-      log.error(
-          "Persist step error (transient): externalId={}, err={}",
-          dto.getSignalId(),
-          ex.getMessage(),
-          ex);
-      return ProcessResult.retryTransient(List.of(rej)); // NO_ACK
+    // 0) Persist
+    var persist = persistSignalStep.execute(dto);
+    if (persist.getStop().isPresent()) {
+      return persist.getStop().get();
     }
+    UUID savedId = persist.getId();
+    SignalContext ctx = SignalContext.of(dto, clock, savedId);
 
-    // Build context
-    SignalContext ctx = SignalContext.of(dto, clock, id);
-
-    // Freshness/Latency step
-    StepResult fresh = freshnessValidator.validate(ctx);
-    if (!fresh.isOk()) {
-      // Mark as REJECTED (best-effort)
-      try {
-        signalService.updateStatus(id, SignalStatus.REJECTED);
-      } catch (Exception e) {
-        log.warn("Status update to REJECTED failed: signalId={}", id, e);
-      }
-
-      List<Rejection> rejections = fresh.getRejection().map(List::of).orElse(List.of());
-      log.warn(
-          "Rejected at freshness: externalId={}, signalId={}, code={}, msg={}",
-          dto.getSignalId(),
-          id,
-          rejections.isEmpty() ? "n/a" : rejections.get(0).getCode(),
-          rejections.isEmpty() ? "n/a" : rejections.get(0).getMessage());
-
-      return ProcessResult.rejected(id, rejections); // ACK
+    // integrity
+    StepResult integrityResult = signalValidator.validateIntegrity(ctx);
+    Optional<ProcessResult> integrityDecision =
+        decisionService.handle(ctx, integrityResult, ValidationPhase.PHASE0_INTEGRITY);
+    if (integrityDecision.isPresent()) {
+      return integrityDecision.get();
     }
+    log.info("Integrity check passed: signalId={}", savedId);
 
-    log.info("Freshness check passed: externalId={}, signalId={}", dto.getSignalId(), id);
-
-    BalanceReservationResultDto br = balanceReservationService.reserveForSignal(ctx);
-    if (!br.getResult().isOk()) {
-      try {
-        signalService.updateStatus(id, SignalStatus.REJECTED);
-      } catch (Exception e) {
-        log.warn("Status update to REJECTED failed: signalId={}", id, e);
-      }
-      java.util.List<Rejection> reasons =
-          br.getResult().getRejection().map(java.util.List::of).orElse(java.util.List.of());
-      log.warn(
-          "Rejected at balance/reservation: externalId={}, signalId={}, code={}, msg={}",
-          dto.getSignalId(),
-          id,
-          reasons.isEmpty() ? "n/a" : reasons.get(0).getCode(),
-          reasons.isEmpty() ? "n/a" : reasons.get(0).getMessage());
-      return ProcessResult.rejected(id, reasons);
+    // freshness
+    StepResult freshnessResult = signalValidator.validateFreshness(ctx);
+    Optional<ProcessResult> freshnessDecision =
+        decisionService.handle(ctx, freshnessResult, ValidationPhase.PHASE1_FRESHNESS);
+    if (freshnessDecision.isPresent()) {
+      return freshnessDecision.get();
     }
+    log.info("Freshness check passed: signalId={}", savedId);
 
-    ExecutionPlanDto plan = br.getPlan();
-    log.info(
-        "Balance & reservation passed: externalId={}, signalId={}, legs={}",
-        dto.getSignalId(),
-        id,
-        plan.getLegs().size());
+    // balance (read-only)
+    var balanceReport = signalValidator.validateBalance(ctx);
+    Optional<ProcessResult> balanceDecision =
+        decisionService.handle(ctx, balanceReport.getResult(), ValidationPhase.PHASE2_BALANCE);
+    if (balanceDecision.isPresent()) {
+      return balanceDecision.get();
+    }
+    log.info("Balance check passed: signalId={}", savedId);
 
-    return ProcessResult.accepted(id);
+    return ProcessResult.accepted(savedId);
   }
 }

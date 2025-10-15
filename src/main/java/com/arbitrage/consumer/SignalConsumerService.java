@@ -1,13 +1,19 @@
 package com.arbitrage.consumer;
 
 import com.arbitrage.dto.processor.ProcessResult;
+import com.arbitrage.dto.signal.MetaDto;
+import com.arbitrage.dto.signal.TradeSignalDto;
 import com.arbitrage.enums.AckAction;
 import com.arbitrage.service.api.SignalProcessor;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.nats.client.*;
+import io.nats.client.JetStream;
+import io.nats.client.JetStreamSubscription;
+import io.nats.client.Message;
+import io.nats.client.PullSubscribeOptions;
 import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,7 +26,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class SignalConsumerService {
 
-  private final Connection connection;
+  private final io.nats.client.Connection connection;
   private final JetStream js;
   private final ObjectMapper mapper;
   private final SignalProcessor processor;
@@ -76,57 +82,72 @@ public class SignalConsumerService {
   private void handleMessage(Message m) {
     final String body = new String(m.getData(), StandardCharsets.UTF_8);
     try {
-      // Parse the inbound JSON into our DTOs (case-insensitive per Jackson config)
-      SignalMessageDto dto = mapper.readValue(body, SignalMessageDto.class);
+      // Deserialize inbound JSON directly to TradeSignalDto
+      TradeSignalDto dto = mapper.readValue(body, TradeSignalDto.class);
+
+      // Backfill meta.createdAt from NATS metadata if missing
+      Instant createdAtFromNats = null;
+      if (m.metaData() != null && m.metaData().timestamp() != null) {
+        createdAtFromNats = m.metaData().timestamp().toInstant();
+      }
+      if (dto.getMeta() == null) {
+        dto.setMeta(new MetaDto());
+      }
+      if (dto.getMeta().getCreatedAt() == null && createdAtFromNats != null) {
+        dto.getMeta().setCreatedAt(createdAtFromNats);
+      }
+
+      // Log concise inbound summary
+      String sigId = dto.getMeta() != null ? dto.getMeta().getSignalId().toString() : "n/a";
+      String pair = dto.getMeta() != null ? dto.getMeta().getPair() : "n/a";
+      int legs = dto.getOrders() != null ? dto.getOrders().size() : 0;
+      log.info("NATS message received: signalId={}, pair={}, orders={}", sigId, pair, legs);
 
       // Process through the business pipeline
       ProcessResult result = processor.process(dto);
 
-      // Log a concise outcome line
+      // Outcome logging
       log.info(
-          "Signal processed: decision={}, ack={}, externalId={}, signalId={}",
+          "Signal processed: decision={}, ack={}, signalId={}, savedId={}",
           result.getStatus(),
           result.getAckAction(),
-          dto.getSignalId(),
+          sigId,
           result.getSignalId());
 
-      // Map to JetStream ack semantic
-      applyAck(m, result.getAckAction(), dto);
+      // Ack mapping
+      applyAck(m, result.getAckAction(), sigId);
 
     } catch (Exception ex) {
-      // Parsing or unexpected internal error -> choose policy:
-      // We publish to DLQ and TERM to prevent poison-message loop.
+      // Fatal parsing or unexpected error → send to DLQ and TERM
       log.error("Fatal processing error, TERM & DLQ. payload={}", body, ex);
       publishToDLQ(body, ex);
       safeTerm(m);
     }
   }
 
-  private void applyAck(Message m, AckAction action, SignalMessageDto dto) {
+  private void applyAck(Message m, AckAction action, String signalIdForLog) {
     try {
       switch (action) {
         case ACK:
           m.ack();
-          log.debug("Acked message; externalId={}", dto.getSignalId());
+          log.debug("Acked message; signalId={}", signalIdForLog);
           break;
         case NO_ACK:
-          // Do not ack. Let ackWait expire for redelivery.
-          log.warn("NoAck (will redeliver after ackWait). externalId={}", dto.getSignalId());
+          log.warn("NoAck (will redeliver after ackWait). signalId={}", signalIdForLog);
           break;
         case NAK:
-          // If you prefer immediate redelivery (be cautious about tight loops)
           m.nak();
-          log.warn("Nak issued (immediate redelivery). externalId={}", dto.getSignalId());
+          log.warn("Nak issued (immediate redelivery). signalId={}", signalIdForLog);
           break;
         case TERM:
           m.term();
-          log.warn("Terminated message. externalId={}", dto.getSignalId());
+          log.warn("Terminated message. signalId={}", signalIdForLog);
           break;
         default:
           break;
       }
     } catch (Exception e) {
-      log.error("Ack operation failed ({}). externalId={}", action, dto.getSignalId(), e);
+      log.error("Ack operation failed ({}). signalId={}", action, signalIdForLog, e);
     }
   }
 

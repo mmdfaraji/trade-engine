@@ -2,6 +2,9 @@ package com.arbitrage.repository;
 
 import com.arbitrage.entities.Balance;
 import java.math.BigDecimal;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -15,4 +18,9 @@ public interface BalanceRepository extends JpaRepository<Balance, Long> {
           + "WHERE b.exchangeAccount.id = :accountId AND b.currency.id = :currencyId "
           + "AND b.available >= :amount")
   int tryReserve(Long accountId, Long currencyId, BigDecimal amount);
+
+  Optional<Balance> findByExchangeAccount_IdAndCurrency_Id(Long exchangeAccountId, Long currencyId);
+
+  List<Balance> findByExchangeAccount_IdInAndCurrency_IdIn(
+      Collection<Long> accountIds, Collection<Long> currencyIds);
 }

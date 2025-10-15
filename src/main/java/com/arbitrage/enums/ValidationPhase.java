@@ -1,6 +1,7 @@
 package com.arbitrage.enums;
 
 public enum ValidationPhase {
+  PHASE0_INTEGRITY,
   PHASE0_PERSIST, // initial persist/idempotency/normalization
   PHASE1_FRESHNESS, // ttl / latency validation
   PHASE2_BALANCE, // balances & reservation
