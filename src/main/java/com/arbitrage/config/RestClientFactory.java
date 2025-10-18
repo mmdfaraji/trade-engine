@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 @Component
-public class ExchangeClientFactory {
+public class RestClientFactory {
 
   public RestClient buildPublicClient(Exchange exchange) {
     HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();

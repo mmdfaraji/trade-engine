@@ -19,10 +19,10 @@ public class RamzinexTokenProvider {
   private static final String PATH_GET_TOKEN = "/exchange/api/v1.0/exchange/auth/api_key/getToken";
 
   private final ExchangeAccessService directory;
-  private final ExchangeClientFactory factory;
+  private final RestClientFactory factory;
   private final Map<String, Cached> cache = new ConcurrentHashMap<>();
 
-  public RamzinexTokenProvider(ExchangeAccessService directory, ExchangeClientFactory factory) {
+  public RamzinexTokenProvider(ExchangeAccessService directory, RestClientFactory factory) {
     this.directory = directory;
     this.factory = factory;
   }

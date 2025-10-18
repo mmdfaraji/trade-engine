@@ -9,9 +9,9 @@ import org.springframework.web.client.RestClient;
 @Component
 public class NobitexClients {
 
-  private final ExchangeClientFactory factory;
+  private final RestClientFactory factory;
 
-  public NobitexClients(ExchangeClientFactory factory) {
+  public NobitexClients(RestClientFactory factory) {
     this.factory = factory;
   }
 

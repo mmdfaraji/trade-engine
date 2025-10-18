@@ -66,24 +66,14 @@ class TraderServiceIntegrationTest {
 
   private Exchange exchange;
   private ExchangeAccount account;
-  private Currency baseCurrency;
   private Currency quoteCurrency;
   private Pair pair;
 
   @BeforeEach
   void setUp() {
-    baseCurrency =
-        currencyRepository.save(Currency.builder().symbol("BTC").name("Bitcoin").build());
     quoteCurrency =
-        currencyRepository.save(Currency.builder().symbol("USDT").name("Tether").build());
-
-    pair =
-        pairRepository.save(
-            Pair.builder()
-                .baseCurrency(baseCurrency)
-                .quoteCurrency(quoteCurrency)
-                .symbol("BTC-USDT")
-                .build());
+        currencyRepository.findByNameAndSymbol("TETHER", "USDT").orElseGet(Currency::new);
+    pair = pairRepository.findBySymbolIgnoreCase("BTC-USDT").orElseGet(Pair::new);
 
     exchange = new Exchange();
     exchange.setName("TestEx");

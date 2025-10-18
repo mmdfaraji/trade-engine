@@ -8,10 +8,10 @@ import org.springframework.web.client.RestClient;
 @Component
 public class RamzinexClients {
 
-  private final ExchangeClientFactory factory;
+  private final RestClientFactory factory;
   private final RamzinexTokenProvider tokenCache;
 
-  public RamzinexClients(ExchangeClientFactory factory, RamzinexTokenProvider tokenCache) {
+  public RamzinexClients(RestClientFactory factory, RamzinexTokenProvider tokenCache) {
     this.factory = factory;
     this.tokenCache = tokenCache;
   }

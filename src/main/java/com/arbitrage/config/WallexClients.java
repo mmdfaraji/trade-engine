@@ -8,9 +8,9 @@ import org.springframework.web.client.RestClient;
 @Component
 public class WallexClients {
 
-  private final ExchangeClientFactory factory;
+  private final RestClientFactory factory;
 
-  public WallexClients(ExchangeClientFactory factory) {
+  public WallexClients(RestClientFactory factory) {
     this.factory = factory;
   }
 
