@@ -1,5 +1,6 @@
 package com.arbitrage.service;
 
+import com.arbitrage.model.ExchangeOrderStatus;
 import com.arbitrage.model.OrderAck;
 import com.arbitrage.model.OrderRequest;
 import com.arbitrage.model.Quote;
@@ -17,4 +18,6 @@ public interface ExchangeMarketClient {
   OrderAck submitOrder(OrderRequest orderRequest);
 
   boolean cancelOrder(String orderId);
+
+  ExchangeOrderStatus getOrderStatus(String orderId);
 }

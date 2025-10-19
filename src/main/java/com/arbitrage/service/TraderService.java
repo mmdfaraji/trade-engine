@@ -99,13 +99,18 @@ public class TraderService implements Trader {
             .avgPrice(BigDecimal.ZERO)
             .sentAt(new Date())
             .build();
-    orderService.save(order);
+    order = orderService.save(order);
 
-    applyBalanceLock(account, pair, side, baseQty, quoteQty);
+    applyBalanceLock(order, account, pair, side, baseQty, quoteQty);
   }
 
   private void applyBalanceLock(
-      ExchangeAccount account, Pair pair, OrderSide side, BigDecimal baseQty, BigDecimal quoteQty) {
+      Order order,
+      ExchangeAccount account,
+      Pair pair,
+      OrderSide side,
+      BigDecimal baseQty,
+      BigDecimal quoteQty) {
 
     BigDecimal lockAmount;
     Currency currency;
@@ -128,6 +133,7 @@ public class TraderService implements Trader {
             .currency(currency)
             .amount(lockAmount)
             .reason(BALANCE_LOCK_REASON)
+            .signalId(order != null && order.getId() != null ? String.valueOf(order.getId()) : null)
             .build();
     balanceLockRepository.save(lock);
 

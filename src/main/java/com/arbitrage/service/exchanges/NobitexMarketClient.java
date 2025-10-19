@@ -4,6 +4,8 @@ import com.arbitrage.config.NobitexClients;
 import com.arbitrage.entities.CurrencyExchange;
 import com.arbitrage.entities.Exchange;
 import com.arbitrage.entities.ExchangeAccount;
+import com.arbitrage.enums.OrderStatus;
+import com.arbitrage.model.ExchangeOrderStatus;
 import com.arbitrage.model.OrderAck;
 import com.arbitrage.model.OrderRequest;
 import com.arbitrage.model.Quote;
@@ -12,6 +14,7 @@ import com.arbitrage.service.ExchangeAccessService;
 import com.arbitrage.service.ExchangeMarketClient;
 import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -39,6 +42,7 @@ public class NobitexMarketClient implements ExchangeMarketClient {
   private static final String PATH_STATS = "/market/stats";
   private static final String PATH_ORDER_ADD = "/market/orders/add";
   private static final String PATH_ORDER_UPDATE_STATUS = "/market/orders/update-status";
+  private static final String PATH_ORDER_STATUS = "/market/orders/status";
 
   private final CurrencyExchangeRepository currencyExchangeRepository;
   private final ExchangeAccessService exchangeAccessService;
@@ -196,6 +200,75 @@ public class NobitexMarketClient implements ExchangeMarketClient {
     }
   }
 
+  @Override
+  public ExchangeOrderStatus getOrderStatus(String orderId) {
+    if (!StringUtils.hasText(orderId)) {
+      throw new IllegalArgumentException("orderId must not be blank");
+    }
+
+    try {
+      var form = new LinkedMultiValueMap<String, String>();
+      if (orderId.matches("\\d+")) {
+        form.add("order", orderId);
+      } else {
+        form.add("clientOrderId", orderId);
+      }
+
+      Map<String, Object> response =
+          postForm(privateClient, PATH_ORDER_STATUS, form, Map.class, MediaType.APPLICATION_JSON);
+
+      String status = response != null ? String.valueOf(response.get("status")) : null;
+      String orderStatus = response != null ? String.valueOf(response.get("orderStatus")) : null;
+
+      Map<String, Object> orderData = asMap(response != null ? response.get("order") : null);
+      BigDecimal filledQty =
+          extractDecimal(orderData, "matchedVolume", "filledVolume", "executedVolume");
+      if (filledQty == null) {
+        filledQty = extractDecimal(orderData, "matchedAmount", "filledAmount", "executedAmount");
+      }
+      BigDecimal avgPrice = extractDecimal(orderData, "averagePrice", "avgPrice");
+      BigDecimal executedNotional =
+          extractDecimal(orderData, "matchedAmount", "filledAmount", "executedAmount");
+      if (executedNotional == null && filledQty != null) {
+        BigDecimal price = avgPrice != null ? avgPrice : extractDecimal(orderData, "price");
+        if (price != null) {
+          executedNotional = price.multiply(filledQty, MathContext.DECIMAL64);
+        }
+      }
+
+      OrderStatus mapped = mapOrderStatus(StringUtils.hasText(orderStatus) ? orderStatus : status);
+      return new ExchangeOrderStatus(mapped, filledQty, avgPrice, executedNotional);
+    } catch (RestClientResponseException http) {
+      throw http;
+    }
+  }
+
+  private OrderStatus mapOrderStatus(String status) {
+    if (!StringUtils.hasText(status)) {
+      return OrderStatus.SENT;
+    }
+
+    String normalized = status.trim().toLowerCase(LOCALE);
+    switch (normalized) {
+      case "done":
+      case "filled":
+      case "matched":
+      case "closed":
+        return OrderStatus.FILLED;
+      case "partial":
+      case "partially_filled":
+      case "partial_fill":
+        return OrderStatus.PARTIAL;
+      case "canceled":
+      case "cancelled":
+        return OrderStatus.CANCELLED;
+      case "new":
+        return OrderStatus.NEW;
+      default:
+        return OrderStatus.SENT;
+    }
+  }
+
   private static String defaultClientOrderId(OrderRequest req) {
     return ("CLI-" + req.getSymbol() + "-" + System.currentTimeMillis()).toUpperCase(LOCALE);
   }
@@ -229,5 +302,30 @@ public class NobitexMarketClient implements ExchangeMarketClient {
       spec = spec.accept(accept);
     }
     return spec.body(form).retrieve().body(responseType);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> asMap(Object value) {
+    if (value instanceof Map<?, ?>) {
+      return (Map<String, Object>) value;
+    }
+    return null;
+  }
+
+  private static BigDecimal extractDecimal(Map<String, Object> source, String... keys) {
+    if (source == null || keys == null) {
+      return null;
+    }
+    for (String key : keys) {
+      Object value = source.get(key);
+      if (value != null) {
+        try {
+          return new BigDecimal(String.valueOf(value));
+        } catch (NumberFormatException ignore) {
+          // skip malformed values
+        }
+      }
+    }
+    return null;
   }
 }
