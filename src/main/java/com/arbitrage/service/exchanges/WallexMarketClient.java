@@ -42,6 +42,7 @@ public class WallexMarketClient implements ExchangeMarketClient {
   private static final String P_FUNDS_AVAILABLE = "/v1/account/balances";
   private static final String PATH_ORDER_CREATE = "/v1/account/orders";
   private static final String P_ORDER_CANCEL = "/v1/account/orders/{client_id}";
+  private static final String PATH_ORDER_STATUS = "/v1/account/orders/{client_id}";
   private static final Pattern DIGITS = Pattern.compile("\\d+");
 
   private final CurrencyExchangeRepository currencyExchangeRepository;
@@ -240,7 +241,7 @@ public class WallexMarketClient implements ExchangeMarketClient {
       Map<?, ?> response =
           publicClient
               .get()
-              .uri(uriBuilder -> uriBuilder.path(P_ORDER_CANCEL).build(orderId))
+              .uri(uriBuilder -> uriBuilder.path(PATH_ORDER_STATUS).build(orderId))
               .retrieve()
               .body(Map.class);
 

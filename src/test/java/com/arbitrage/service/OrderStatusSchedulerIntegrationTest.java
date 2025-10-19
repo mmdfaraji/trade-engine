@@ -77,17 +77,9 @@ class OrderStatusSchedulerIntegrationTest {
     stubExchangeMarketClient.reset();
     ReflectionTestUtils.setField(scheduler, "orderTimeout", Duration.ofMinutes(10));
 
-    baseCurrency =
-        currencyRepository.save(Currency.builder().symbol("BTC").name("Bitcoin").build());
     quoteCurrency =
-        currencyRepository.save(Currency.builder().symbol("USDT").name("Tether").build());
-    pair =
-        pairRepository.save(
-            Pair.builder()
-                .symbol("BTC-USDT")
-                .baseCurrency(baseCurrency)
-                .quoteCurrency(quoteCurrency)
-                .build());
+        currencyRepository.findByNameAndSymbol("TETHER", "USDT").orElseGet(Currency::new);
+    pair = pairRepository.findBySymbolIgnoreCase("BTC-USDT").orElseGet(Pair::new);
 
     exchange = new Exchange();
     exchange.setName("TestEx");

@@ -1,10 +1,14 @@
 package com.arbitrage.service.market;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.arbitrage.entities.Currency;
 import com.arbitrage.entities.CurrencyExchange;
 import com.arbitrage.entities.Exchange;
+import com.arbitrage.enums.OrderStatus;
+import com.arbitrage.exception.OrderNotFoundException;
+import com.arbitrage.model.ExchangeOrderStatus;
 import com.arbitrage.model.OrderRequest;
 import com.arbitrage.model.Quote;
 import com.arbitrage.respository.CurrencyExchangeRepository;
@@ -82,6 +86,45 @@ class NobitexMarketClientTest {
   void getWalletBalance_live_invalidCurrency_throws() {
     String invalid = "___invalid___";
     Assertions.assertThrows(Exception.class, () -> client.getWalletBalance(invalid));
+  }
+
+  // @Test
+  @DisplayName("Get order status: filled order id resolves to FILLED")
+  @Timeout(20)
+  void getOrderStatus_live_returnsFilled_whenOrderFilled() {
+    String orderId = "4129491517";
+
+    ExchangeOrderStatus status = client.getOrderStatus(orderId);
+
+    assertThat(status).as("status response").isNotNull();
+    assertThat(status.status()).isEqualTo(OrderStatus.FILLED);
+  }
+
+  @Test
+  @DisplayName("Get order status: not found")
+  @Timeout(20)
+  void getOrderStatus_throwsException_notFoundOrder() {
+    String orderId = "11111";
+
+    assertThrows(OrderNotFoundException.class, () -> client.getOrderStatus(orderId));
+  }
+
+  // @Test
+  @DisplayName("Get order status: oppend maps to SENT")
+  @Timeout(20)
+  void getOrderStatus_live_returnsSent_whenStatusOppend() {
+    String orderId = System.getenv("NOBITEX_OPPEND_ORDER_ID");
+    Assertions.assertTrue(
+        orderId != null && !orderId.isBlank(),
+        "Set NOBITEX_OPPEND_ORDER_ID to an order returning oppend to run this test");
+
+    ExchangeOrderStatus status = client.getOrderStatus(orderId);
+
+    assertThat(status).as("status response").isNotNull();
+    assertThat(status.status()).isEqualTo(OrderStatus.SENT);
+    assertThat(status.filledQuantity()).isNull();
+    assertThat(status.averagePrice()).isNull();
+    assertThat(status.executedNotional()).isNull();
   }
 
   @Test
