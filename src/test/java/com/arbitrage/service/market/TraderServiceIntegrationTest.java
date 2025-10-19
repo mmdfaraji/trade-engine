@@ -16,6 +16,7 @@ import com.arbitrage.enums.ExchangeStatus;
 import com.arbitrage.enums.OrderSide;
 import com.arbitrage.enums.OrderStatus;
 import com.arbitrage.enums.TimeInForce;
+import com.arbitrage.model.ExchangeOrderStatus;
 import com.arbitrage.model.OrderAck;
 import com.arbitrage.model.OrderRequest;
 import com.arbitrage.model.Quote;
@@ -147,6 +148,7 @@ class TraderServiceIntegrationTest {
     assertThat(lock.getCurrency()).isEqualTo(quoteCurrency);
     assertThat(lock.getAmount()).isEqualByComparingTo("20");
     assertThat(lock.getReason()).isEqualTo("ORDER_SUBMIT");
+    assertThat(lock.getSignalId()).isEqualTo(String.valueOf(order.getId()));
 
     Balance updatedBalance =
         balanceRepository.findByExchangeAccountAndCurrency(account, quoteCurrency).orElseThrow();
@@ -201,6 +203,11 @@ class TraderServiceIntegrationTest {
     @Override
     public boolean cancelOrder(String orderId) {
       return false;
+    }
+
+    @Override
+    public ExchangeOrderStatus getOrderStatus(String orderId) {
+      return ExchangeOrderStatus.of(OrderStatus.NEW);
     }
 
     OrderRequest getLastRequest() {

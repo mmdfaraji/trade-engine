@@ -29,6 +29,8 @@ app:
     timeout:
       connect: 2s
       read: 5s
+  order-status:
+    timeout: 5m
 
 logging:
   level:

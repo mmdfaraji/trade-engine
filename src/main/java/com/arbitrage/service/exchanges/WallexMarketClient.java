@@ -4,6 +4,8 @@ import com.arbitrage.config.WallexClients;
 import com.arbitrage.entities.CurrencyExchange;
 import com.arbitrage.entities.Exchange;
 import com.arbitrage.entities.ExchangeAccount;
+import com.arbitrage.enums.OrderStatus;
+import com.arbitrage.model.ExchangeOrderStatus;
 import com.arbitrage.model.OrderAck;
 import com.arbitrage.model.OrderRequest;
 import com.arbitrage.model.Quote;
@@ -14,6 +16,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.time.Instant;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -227,6 +230,89 @@ public class WallexMarketClient implements ExchangeMarketClient {
     }
   }
 
+  @Override
+  public ExchangeOrderStatus getOrderStatus(String orderId) {
+    if (!StringUtils.hasText(orderId) || !DIGITS.matcher(orderId).matches()) {
+      throw new IllegalArgumentException("orderId must be numeric");
+    }
+
+    try {
+      Map<?, ?> response =
+          publicClient
+              .get()
+              .uri(uriBuilder -> uriBuilder.path(P_ORDER_CANCEL).build(orderId))
+              .retrieve()
+              .body(Map.class);
+
+      if (response == null) {
+        return ExchangeOrderStatus.of(OrderStatus.SENT);
+      }
+
+      Map<String, Object> resultMap = asMap(response.get("result"));
+      String status = null;
+      Map<String, Object> orderData = null;
+      if (resultMap != null) {
+        Object s = resultMap.get("status");
+        status = s != null ? String.valueOf(s) : null;
+        orderData = asMap(resultMap.get("order"));
+        if (orderData == null) {
+          orderData = resultMap;
+        }
+      }
+      if (status == null) {
+        Object state = response.get("status");
+        status = state != null ? String.valueOf(state) : null;
+      }
+
+      BigDecimal filledQty =
+          extractDecimal(orderData, "executed_quantity", "filled_quantity", "quantityFilled");
+      if (filledQty == null) {
+        filledQty =
+            extractDecimal(orderData, "matchedQuantity", "done_quantity", "quantity_executed");
+      }
+      BigDecimal avgPrice = extractDecimal(orderData, "average_price", "avg_price");
+      BigDecimal executedNotional =
+          extractDecimal(orderData, "executed_notional", "filled_notional", "value");
+      if (executedNotional == null && filledQty != null) {
+        BigDecimal price = avgPrice != null ? avgPrice : extractDecimal(orderData, "price");
+        if (price != null) {
+          executedNotional = price.multiply(filledQty, MathContext.DECIMAL64);
+        }
+      }
+
+      return new ExchangeOrderStatus(mapOrderStatus(status), filledQty, avgPrice, executedNotional);
+    } catch (RestClientException e) {
+      log.warn("Failed to fetch Wallex order status: {}", e.getMessage());
+      throw e;
+    }
+  }
+
+  private OrderStatus mapOrderStatus(String status) {
+    if (!StringUtils.hasText(status)) {
+      return OrderStatus.SENT;
+    }
+
+    String normalized = status.trim().toLowerCase(LOCALE);
+    switch (normalized) {
+      case "filled":
+      case "done":
+      case "closed":
+        return OrderStatus.FILLED;
+      case "partial":
+      case "partial_fill":
+      case "partially_filled":
+        return OrderStatus.PARTIAL;
+      case "canceled":
+      case "cancelled":
+        return OrderStatus.CANCELLED;
+      case "new":
+      case "pending":
+        return OrderStatus.NEW;
+      default:
+        return OrderStatus.SENT;
+    }
+  }
+
   private static String normalizeSymbol(String s) {
     return s.trim().replace("-", "").replace("_", "").toUpperCase(LOCALE);
   }
@@ -253,6 +339,31 @@ public class WallexMarketClient implements ExchangeMarketClient {
         + Instant.now().toEpochMilli()
         + "-"
         + UUID.randomUUID().toString().substring(0, 8);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> asMap(Object value) {
+    if (value instanceof Map<?, ?>) {
+      return (Map<String, Object>) value;
+    }
+    return null;
+  }
+
+  private static BigDecimal extractDecimal(Map<String, Object> map, String... keys) {
+    if (map == null || keys == null) {
+      return null;
+    }
+    for (String key : keys) {
+      Object value = map.get(key);
+      if (value != null) {
+        try {
+          return new BigDecimal(String.valueOf(value));
+        } catch (NumberFormatException ignore) {
+          // skip malformed numeric values
+        }
+      }
+    }
+    return null;
   }
 
   @Data

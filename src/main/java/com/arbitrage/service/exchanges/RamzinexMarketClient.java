@@ -4,6 +4,8 @@ import com.arbitrage.config.RamzinexClients;
 import com.arbitrage.entities.CurrencyExchange;
 import com.arbitrage.entities.Exchange;
 import com.arbitrage.entities.ExchangeAccount;
+import com.arbitrage.enums.OrderStatus;
+import com.arbitrage.model.ExchangeOrderStatus;
 import com.arbitrage.model.OrderAck;
 import com.arbitrage.model.OrderRequest;
 import com.arbitrage.model.Quote;
@@ -12,6 +14,7 @@ import com.arbitrage.service.ExchangeAccessService;
 import com.arbitrage.service.ExchangeMarketClient;
 import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,6 +50,8 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
   private static final String P_ORDER_LIMIT = "/exchange/api/v1.0/exchange/users/me/orders/limit";
   private static final String P_ORDER_CANCEL =
       "/exchange/api/v1.0/exchange/users/me/orders/{orderId}/cancel";
+  private static final String P_ORDER_STATUS =
+      "/exchange/api/v1.0/exchange/users/me/orders/{orderId}";
 
   private static final Pattern DIGITS = Pattern.compile("\\d+");
   private volatile boolean pairsLoaded = false;
@@ -185,6 +190,91 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
       return resp != null && Integer.valueOf(0).equals(resp.get("status"));
     } catch (RestClientResponseException http) {
       return false;
+    }
+  }
+
+  @Override
+  public ExchangeOrderStatus getOrderStatus(String orderId) {
+    if (!StringUtils.hasText(orderId) || !DIGITS.matcher(orderId).matches()) {
+      throw new IllegalArgumentException("orderId must be numeric");
+    }
+
+    try {
+      Map<?, ?> resp =
+          privateClient
+              .get()
+              .uri(b -> b.path(P_ORDER_STATUS).build(orderId))
+              .retrieve()
+              .body(Map.class);
+
+      if (resp == null) {
+        return ExchangeOrderStatus.of(OrderStatus.SENT);
+      }
+
+      Object dataObj = resp.get("data");
+      String status = null;
+      Map<String, Object> orderData = null;
+      Map<String, Object> dataMap = castToMap(dataObj);
+      if (dataMap != null) {
+        Object order = dataMap.get("order");
+        Map<String, Object> orderMap = castToMap(order);
+        if (orderMap != null) {
+          orderData = orderMap;
+          Object s = orderMap.get("status");
+          if (s != null) {
+            status = String.valueOf(s);
+          }
+        }
+      }
+      if (status == null) {
+        Object s = resp.get("status");
+        status = s != null ? String.valueOf(s) : null;
+      }
+
+      BigDecimal filledQty =
+          extractDecimal(orderData, "filled_amount", "filledVolume", "executed_volume");
+      if (filledQty == null) {
+        filledQty = extractDecimal(orderData, "done_amount", "executed_amount", "amount_filled");
+      }
+      BigDecimal avgPrice = extractDecimal(orderData, "avg_price", "average_price");
+      BigDecimal executedNotional =
+          extractDecimal(orderData, "filled_total", "done_value", "executed_value");
+      if (executedNotional == null && filledQty != null) {
+        BigDecimal price = avgPrice != null ? avgPrice : extractDecimal(orderData, "price");
+        if (price != null) {
+          executedNotional = price.multiply(filledQty, MathContext.DECIMAL64);
+        }
+      }
+
+      return new ExchangeOrderStatus(mapOrderStatus(status), filledQty, avgPrice, executedNotional);
+    } catch (RestClientResponseException http) {
+      throw http;
+    }
+  }
+
+  private OrderStatus mapOrderStatus(String status) {
+    if (!StringUtils.hasText(status)) {
+      return OrderStatus.SENT;
+    }
+
+    String normalized = status.trim().toLowerCase(LOCALE);
+    switch (normalized) {
+      case "filled":
+      case "done":
+      case "closed":
+        return OrderStatus.FILLED;
+      case "partial":
+      case "partial_fill":
+      case "partially_filled":
+        return OrderStatus.PARTIAL;
+      case "canceled":
+      case "cancelled":
+        return OrderStatus.CANCELLED;
+      case "new":
+      case "pending":
+        return OrderStatus.NEW;
+      default:
+        return OrderStatus.SENT;
     }
   }
 
@@ -418,5 +508,30 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
 
   private static String createClientOrderId(String symbol) {
     return ("CLI-" + symbol + "-" + System.currentTimeMillis()).toUpperCase(LOCALE);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> castToMap(Object value) {
+    if (value instanceof Map<?, ?>) {
+      return (Map<String, Object>) value;
+    }
+    return null;
+  }
+
+  private static BigDecimal extractDecimal(Map<String, Object> map, String... keys) {
+    if (map == null || keys == null) {
+      return null;
+    }
+    for (String key : keys) {
+      Object value = map.get(key);
+      if (value != null) {
+        try {
+          return new BigDecimal(String.valueOf(value));
+        } catch (NumberFormatException ignore) {
+          // ignore malformed numeric values
+        }
+      }
+    }
+    return null;
   }
 }
