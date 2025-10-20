@@ -5,6 +5,7 @@ import com.arbitrage.entities.CurrencyExchange;
 import com.arbitrage.entities.Exchange;
 import com.arbitrage.entities.ExchangeAccount;
 import com.arbitrage.enums.OrderStatus;
+import com.arbitrage.exception.OrderNotFoundException;
 import com.arbitrage.model.ExchangeOrderStatus;
 import com.arbitrage.model.OrderAck;
 import com.arbitrage.model.OrderRequest;
@@ -245,50 +246,20 @@ public class WallexMarketClient implements ExchangeMarketClient {
               .retrieve()
               .body(Map.class);
 
-      if (response == null) {
-        return ExchangeOrderStatus.of(OrderStatus.SENT);
+      WallexOrderSnapshot snapshot = WallexOrderSnapshot.fromResponse(response);
+      return snapshot.toExchangeOrderStatus();
+    } catch (RestClientResponseException e) {
+      if (e.getStatusCode() != null && e.getStatusCode().value() == 404) {
+        throw new OrderNotFoundException(orderId, "Order not found: " + orderId, e);
       }
-
-      Map<String, Object> resultMap = asMap(response.get("result"));
-      String status = null;
-      Map<String, Object> orderData = null;
-      if (resultMap != null) {
-        Object s = resultMap.get("status");
-        status = s != null ? String.valueOf(s) : null;
-        orderData = asMap(resultMap.get("order"));
-        if (orderData == null) {
-          orderData = resultMap;
-        }
-      }
-      if (status == null) {
-        Object state = response.get("status");
-        status = state != null ? String.valueOf(state) : null;
-      }
-
-      BigDecimal filledQty =
-          extractDecimal(orderData, "executed_quantity", "filled_quantity", "quantityFilled");
-      if (filledQty == null) {
-        filledQty =
-            extractDecimal(orderData, "matchedQuantity", "done_quantity", "quantity_executed");
-      }
-      BigDecimal avgPrice = extractDecimal(orderData, "average_price", "avg_price");
-      BigDecimal executedNotional =
-          extractDecimal(orderData, "executed_notional", "filled_notional", "value");
-      if (executedNotional == null && filledQty != null) {
-        BigDecimal price = avgPrice != null ? avgPrice : extractDecimal(orderData, "price");
-        if (price != null) {
-          executedNotional = price.multiply(filledQty, MathContext.DECIMAL64);
-        }
-      }
-
-      return new ExchangeOrderStatus(mapOrderStatus(status), filledQty, avgPrice, executedNotional);
+      throw e;
     } catch (RestClientException e) {
       log.warn("Failed to fetch Wallex order status: {}", e.getMessage());
       throw e;
     }
   }
 
-  private OrderStatus mapOrderStatus(String status) {
+  private static OrderStatus mapOrderStatus(String status) {
     if (!StringUtils.hasText(status)) {
       return OrderStatus.SENT;
     }
@@ -302,15 +273,221 @@ public class WallexMarketClient implements ExchangeMarketClient {
       case "partial":
       case "partial_fill":
       case "partially_filled":
+      case "partial-filled":
+      case "partially-filled":
+      case "partialfilled":
+      case "partiallyfilled":
         return OrderStatus.PARTIAL;
       case "canceled":
       case "cancelled":
+      case "rejected":
+      case "expired":
+      case "failed":
+      case "cancelled_by_user":
+      case "cancelled_by_system":
         return OrderStatus.CANCELLED;
       case "new":
       case "pending":
+      case "open":
+      case "opened":
+      case "oppend":
+      case "waiting":
+      case "pending_cancel":
+      case "processing":
+      case "in_progress":
+      case "in-progress":
         return OrderStatus.NEW;
       default:
         return OrderStatus.SENT;
+    }
+  }
+
+  private static final class WallexOrderSnapshot {
+    private static final WallexOrderSnapshot EMPTY =
+        new WallexOrderSnapshot(OrderStatus.SENT, null, null, null);
+
+    private final OrderStatus status;
+    private final BigDecimal filledQty;
+    private final BigDecimal avgPrice;
+    private final BigDecimal executedNotional;
+
+    private WallexOrderSnapshot(
+        OrderStatus status,
+        BigDecimal filledQty,
+        BigDecimal avgPrice,
+        BigDecimal executedNotional) {
+      this.status = status;
+      this.filledQty = filledQty;
+      this.avgPrice = avgPrice;
+      this.executedNotional = executedNotional;
+    }
+
+    static WallexOrderSnapshot fromResponse(Map<?, ?> rawResponse) {
+      if (rawResponse == null) {
+        return EMPTY;
+      }
+
+      Map<String, Object> response = mapOrEmpty(rawResponse);
+      Object resultCandidate = response.get("result");
+      Map<String, Object> result = mapOrEmpty(resultCandidate);
+      if (result.isEmpty() && resultCandidate instanceof List<?>) {
+        result = firstMap((List<?>) resultCandidate);
+      }
+      Map<String, Object> payload = resolvePayload(result);
+
+      List<Map<String, Object>> contexts = Arrays.asList(payload, result, response);
+
+      String statusValue =
+          firstNonBlank(
+              firstText(
+                  contexts,
+                  "status",
+                  "state",
+                  "orderStatus",
+                  "order_status",
+                  "current_status",
+                  "orderState"),
+              asString(response.get("status")),
+              asString(response.get("resultStatus")));
+
+      OrderStatus mappedStatus = mapOrderStatus(statusValue);
+
+      BigDecimal filledQty =
+          firstDecimal(
+              contexts,
+              "executedQty",
+              "executed_quantity",
+              "executedQuantity",
+              "filled_quantity",
+              "filledQuantity",
+              "filledAmount",
+              "quantityFilled",
+              "executed_amount",
+              "executedAmount");
+
+      BigDecimal avgPrice =
+          firstDecimal(
+              contexts,
+              "executedPrice",
+              "executed_price",
+              "average_price",
+              "avg_price",
+              "avgPrice",
+              "averagePrice");
+
+      BigDecimal executedNotional =
+          firstDecimal(
+              contexts,
+              "executedSum",
+              "executed_notional",
+              "executed_notional_value",
+              "filled_notional",
+              "value",
+              "executedValue",
+              "executed_quote",
+              "executedQuote",
+              "filled_value",
+              "cummulativeQuoteQty");
+
+      if (executedNotional == null && filledQty != null) {
+        BigDecimal priceCandidate =
+            avgPrice != null
+                ? avgPrice
+                : firstDecimal(contexts, "price", "executedPrice", "orderPrice");
+        if (priceCandidate != null) {
+          executedNotional = priceCandidate.multiply(filledQty, MathContext.DECIMAL64);
+        }
+      }
+
+      if (avgPrice == null
+          && executedNotional != null
+          && filledQty != null
+          && filledQty.signum() > 0) {
+        avgPrice = executedNotional.divide(filledQty, MathContext.DECIMAL64);
+      }
+
+      return new WallexOrderSnapshot(mappedStatus, filledQty, avgPrice, executedNotional);
+    }
+
+    ExchangeOrderStatus toExchangeOrderStatus() {
+      return new ExchangeOrderStatus(status, filledQty, avgPrice, executedNotional);
+    }
+
+    private static Map<String, Object> mapOrEmpty(Object candidate) {
+      Map<String, Object> map = asMap(candidate);
+      return map != null ? map : Collections.emptyMap();
+    }
+
+    private static Map<String, Object> resolvePayload(Map<String, Object> result) {
+      List<String> orderKeys =
+          Arrays.asList("order", "order_info", "data", "detail", "info", "orderDetail", "payload");
+      for (String key : orderKeys) {
+        Object candidate = result.get(key);
+        Map<String, Object> map = mapOrEmpty(candidate);
+        if (map.isEmpty() && candidate instanceof List<?>) {
+          map = firstMap((List<?>) candidate);
+        }
+        if (!map.isEmpty()) {
+          return map;
+        }
+      }
+      return result;
+    }
+
+    private static Map<String, Object> firstMap(List<?> candidates) {
+      if (candidates == null) {
+        return Collections.emptyMap();
+      }
+      for (Object candidate : candidates) {
+        Map<String, Object> map = mapOrEmpty(candidate);
+        if (!map.isEmpty()) {
+          return map;
+        }
+      }
+      return Collections.emptyMap();
+    }
+
+    private static String firstNonBlank(String... values) {
+      if (values == null) {
+        return null;
+      }
+      for (String value : values) {
+        if (StringUtils.hasText(value)) {
+          return value;
+        }
+      }
+      return null;
+    }
+
+    private static String firstText(List<Map<String, Object>> contexts, String... keys) {
+      if (contexts == null || keys == null) {
+        return null;
+      }
+      for (Map<String, Object> context : contexts) {
+        if (context == null || context.isEmpty()) {
+          continue;
+        }
+        for (String key : keys) {
+          String value = asString(context.get(key));
+          if (StringUtils.hasText(value)) {
+            return value;
+          }
+        }
+      }
+      return null;
+    }
+
+    private static BigDecimal firstDecimal(List<Map<String, Object>> contexts, String... keys) {
+      if (contexts == null || keys == null) {
+        return null;
+      }
+      for (Map<String, Object> context : contexts) {
+        BigDecimal value = extractDecimal(context, keys);
+        if (value != null) {
+          return value;
+        }
+      }
+      return null;
     }
   }
 
@@ -365,6 +542,10 @@ public class WallexMarketClient implements ExchangeMarketClient {
       }
     }
     return null;
+  }
+
+  private static String asString(Object value) {
+    return value != null ? String.valueOf(value) : null;
   }
 
   @Data

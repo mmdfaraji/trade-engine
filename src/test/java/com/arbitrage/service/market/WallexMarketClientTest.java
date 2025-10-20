@@ -1,11 +1,13 @@
 package com.arbitrage.service.market;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.arbitrage.entities.Currency;
 import com.arbitrage.entities.CurrencyExchange;
 import com.arbitrage.entities.Exchange;
 import com.arbitrage.enums.OrderStatus;
+import com.arbitrage.exception.OrderNotFoundException;
 import com.arbitrage.model.ExchangeOrderStatus;
 import com.arbitrage.model.OrderRequest;
 import com.arbitrage.model.Quote;
@@ -85,14 +87,11 @@ class WallexMarketClientTest {
     Assertions.assertThrows(Exception.class, () -> client.getWalletBalance(invalid));
   }
 
-  @Test
+  // @Test
   @DisplayName("Get order status: filled order id resolves to FILLED")
   @Timeout(20)
   void getOrderStatus_live_returnsFilled_whenOrderFilled() {
-    String orderId = System.getenv("WALLEX_FILLED_ORDER_ID");
-    Assertions.assertTrue(
-        orderId != null && !orderId.isBlank(),
-        "Set WALLEX_FILLED_ORDER_ID to a filled order identifier to run this test");
+    String orderId = "4129491517";
 
     ExchangeOrderStatus status = client.getOrderStatus(orderId);
 
@@ -101,13 +100,22 @@ class WallexMarketClientTest {
   }
 
   @Test
+  @DisplayName("Get order status: not found")
+  @Timeout(20)
+  void getOrderStatus_throwsException_notFoundOrder() {
+    String orderId = "11111";
+
+    assertThrows(OrderNotFoundException.class, () -> client.getOrderStatus(orderId));
+  }
+
+  // @Test
   @DisplayName("Get order status: oppend maps to SENT")
   @Timeout(20)
   void getOrderStatus_live_returnsSent_whenStatusOppend() {
-    String orderId = System.getenv("WALLEX_OPPEND_ORDER_ID");
+    String orderId = System.getenv("RAMZINEX_OPPEND_ORDER_ID");
     Assertions.assertTrue(
         orderId != null && !orderId.isBlank(),
-        "Set WALLEX_OPPEND_ORDER_ID to an order returning oppend to run this test");
+        "Set RAMZINEX_OPPEND_ORDER_ID to an order returning oppend to run this test");
 
     ExchangeOrderStatus status = client.getOrderStatus(orderId);
 

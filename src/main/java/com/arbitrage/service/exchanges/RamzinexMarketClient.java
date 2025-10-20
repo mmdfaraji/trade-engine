@@ -5,6 +5,7 @@ import com.arbitrage.entities.CurrencyExchange;
 import com.arbitrage.entities.Exchange;
 import com.arbitrage.entities.ExchangeAccount;
 import com.arbitrage.enums.OrderStatus;
+import com.arbitrage.exception.OrderNotFoundException;
 import com.arbitrage.model.ExchangeOrderStatus;
 import com.arbitrage.model.OrderAck;
 import com.arbitrage.model.OrderRequest;
@@ -282,11 +283,11 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
 
       return new ExchangeOrderStatus(
           mapOrderStatus(status, statusId), filledQty, avgPrice, executedNotional);
-    } catch (RestClientResponseException http) {
-      if (http.getStatusCode() != null && http.getStatusCode().value() == 404) {
-        return ExchangeOrderStatus.of(OrderStatus.CANCELLED);
+    } catch (RestClientResponseException e) {
+      if (e.getStatusCode() != null && e.getStatusCode().value() == 404) {
+        throw new OrderNotFoundException(orderId, "Order not found: " + orderId, e);
       }
-      throw http;
+      throw e;
     }
   }
 

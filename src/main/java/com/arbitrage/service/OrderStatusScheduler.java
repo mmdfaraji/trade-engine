@@ -31,8 +31,6 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class OrderStatusScheduler {
 
-  private static final String DEFAULT_DELAY = "30000"; // 30 seconds
-
   private static final MathContext MATH_CONTEXT = MathContext.DECIMAL64;
   private static final BigDecimal ZERO = BigDecimal.ZERO;
   private static final String BALANCE_LOCK_REASON = "ORDER_SUBMIT";
@@ -45,7 +43,7 @@ public class OrderStatusScheduler {
   @Value("${app.order-status.timeout:PT5M}")
   private Duration orderTimeout;
 
-  @Scheduled(fixedDelayString = "${app.order-status.poll-delay:" + DEFAULT_DELAY + "}")
+  @Scheduled(fixedDelayString = "${app.order-status.poll-delay:6000")
   @Transactional
   public void refreshSentOrdersStatus() {
     List<Order> sentOrders = orderService.findByStatus(OrderStatus.SENT);
