@@ -213,51 +213,92 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
 
       Object dataObj = resp.get("data");
       String status = null;
+      Integer statusId = null;
       Map<String, Object> orderData = null;
       Map<String, Object> dataMap = castToMap(dataObj);
       if (dataMap != null) {
-        Object order = dataMap.get("order");
-        Map<String, Object> orderMap = castToMap(order);
-        if (orderMap != null) {
+        Map<String, Object> orderMap = castToMap(dataMap.get("order"));
+        if (orderMap != null && !orderMap.isEmpty()) {
           orderData = orderMap;
-          Object s = orderMap.get("status");
-          if (s != null) {
-            status = String.valueOf(s);
+        } else {
+          orderData = dataMap;
+        }
+
+        status = extractStatusText(orderData);
+        if (!StringUtils.hasText(status)) {
+          status = extractStatusText(dataMap);
+        }
+
+        statusId = extractInteger(orderData, "status_id");
+        if (statusId == null) {
+          statusId = extractInteger(dataMap, "status_id");
+        }
+        if (statusId == null) {
+          Map<String, Object> statusMap =
+              orderData != null ? castToMap(orderData.get("status")) : null;
+          if (statusMap == null) {
+            statusMap = castToMap(dataMap.get("status"));
+          }
+          if (statusMap != null) {
+            statusId = extractInteger(statusMap, "id", "status_id");
+            if (!StringUtils.hasText(status)) {
+              status = extractStatusText(statusMap);
+            }
           }
         }
       }
-      if (status == null) {
+      if (!StringUtils.hasText(status)) {
         Object s = resp.get("status");
         status = s != null ? String.valueOf(s) : null;
       }
+      if (!StringUtils.hasText(status) && statusId != null) {
+        status = String.valueOf(statusId);
+      }
 
       BigDecimal filledQty =
-          extractDecimal(orderData, "filled_amount", "filledVolume", "executed_volume");
-      if (filledQty == null) {
-        filledQty = extractDecimal(orderData, "done_amount", "executed_amount", "amount_filled");
-      }
-      BigDecimal avgPrice = extractDecimal(orderData, "avg_price", "average_price");
+          extractDecimal(
+              orderData,
+              "filled_nr",
+              "filled_amount",
+              "filledVolume",
+              "executed_volume",
+              "done_amount",
+              "executed_amount",
+              "amount_filled");
+      BigDecimal avgPrice =
+          extractDecimal(orderData, "average_price_nr", "avg_price", "average_price");
       BigDecimal executedNotional =
-          extractDecimal(orderData, "filled_total", "done_value", "executed_value");
+          extractDecimal(
+              orderData, "total_payment_nr", "filled_total", "done_value", "executed_value");
       if (executedNotional == null && filledQty != null) {
-        BigDecimal price = avgPrice != null ? avgPrice : extractDecimal(orderData, "price");
+        BigDecimal price =
+            avgPrice != null
+                ? avgPrice
+                : extractDecimal(orderData, "order_price_nr", "price", "limit_price");
         if (price != null) {
           executedNotional = price.multiply(filledQty, MathContext.DECIMAL64);
         }
       }
 
-      return new ExchangeOrderStatus(mapOrderStatus(status), filledQty, avgPrice, executedNotional);
+      return new ExchangeOrderStatus(
+          mapOrderStatus(status, statusId), filledQty, avgPrice, executedNotional);
     } catch (RestClientResponseException http) {
+      if (http.getStatusCode() != null && http.getStatusCode().value() == 404) {
+        return ExchangeOrderStatus.of(OrderStatus.CANCELLED);
+      }
       throw http;
     }
   }
 
-  private OrderStatus mapOrderStatus(String status) {
+  private OrderStatus mapOrderStatus(String status, Integer statusId) {
     if (!StringUtils.hasText(status)) {
-      return OrderStatus.SENT;
+      return mapOrderStatusFromId(statusId);
     }
 
     String normalized = status.trim().toLowerCase(LOCALE);
+    if (DIGITS.matcher(normalized).matches()) {
+      return mapOrderStatusFromId(Integer.valueOf(normalized));
+    }
     switch (normalized) {
       case "filled":
       case "done":
@@ -272,7 +313,26 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
         return OrderStatus.CANCELLED;
       case "new":
       case "pending":
+      case "oppend":
         return OrderStatus.NEW;
+      default:
+        OrderStatus mapped = mapOrderStatusFromId(statusId);
+        return mapped != null ? mapped : OrderStatus.SENT;
+    }
+  }
+
+  private OrderStatus mapOrderStatusFromId(Integer statusId) {
+    if (statusId == null) {
+      return OrderStatus.SENT;
+    }
+    switch (statusId) {
+      case 1:
+        return OrderStatus.FILLED;
+      case 2:
+        return OrderStatus.CANCELLED;
+      case 3:
+        return OrderStatus.PARTIAL;
+      case 0:
       default:
         return OrderStatus.SENT;
     }
@@ -530,6 +590,67 @@ public class RamzinexMarketClient implements ExchangeMarketClient {
         } catch (NumberFormatException ignore) {
           // ignore malformed numeric values
         }
+      }
+    }
+    return null;
+  }
+
+  private static Integer extractInteger(Map<String, Object> map, String... keys) {
+    if (map == null || keys == null) {
+      return null;
+    }
+    for (String key : keys) {
+      Object value = map.get(key);
+      if (value == null) {
+        continue;
+      }
+      if (value instanceof Number) {
+        return ((Number) value).intValue();
+      }
+      String str = String.valueOf(value).trim();
+      if (str.isEmpty()) {
+        continue;
+      }
+      if (DIGITS.matcher(str).matches()) {
+        try {
+          return Integer.valueOf(str);
+        } catch (NumberFormatException ignore) {
+          // ignore malformed numeric values
+        }
+      }
+    }
+    return null;
+  }
+
+  private static String extractStatusText(Map<String, Object> map) {
+    if (map == null) {
+      return null;
+    }
+    Object statusObj = map.get("status");
+    if (statusObj instanceof String) {
+      String s = ((String) statusObj).trim();
+      if (!s.isEmpty()) {
+        return s;
+      }
+    }
+    Map<String, Object> statusMap = castToMap(statusObj);
+    if (statusMap != null) {
+      Object[] keys = {"en", "name", "title", "status", "fa_name", "fa"};
+      for (Object key : keys) {
+        Object value = statusMap.get(String.valueOf(key));
+        if (value instanceof String && StringUtils.hasText((String) value)) {
+          return ((String) value).trim();
+        }
+      }
+    }
+
+    String[] directKeys = {
+      "status_en", "status_name", "status_text", "status_value", "order_status", "status"
+    };
+    for (String key : directKeys) {
+      Object value = map.get(key);
+      if (value instanceof String && StringUtils.hasText((String) value)) {
+        return ((String) value).trim();
       }
     }
     return null;
