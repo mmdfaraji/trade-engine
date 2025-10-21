@@ -13,14 +13,13 @@ import com.arbitrage.entities.Balance;
 import com.arbitrage.enums.RejectCode;
 import com.arbitrage.enums.ValidationPhase;
 import com.arbitrage.repository.BalanceRepository;
-import com.arbitrage.repository.ExchangeAccountRepository;
-import com.arbitrage.repository.ExchangeRepository;
-import com.arbitrage.repository.PairRepository;
 import com.arbitrage.service.api.SignalValidator;
 import com.arbitrage.service.validators.guard.MetaIntegrityService;
 import com.arbitrage.service.validators.guard.OrdersIntegrityService;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,9 +30,6 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class SignalValidatorImpl implements SignalValidator {
 
-  private final ExchangeRepository exchangeRepository;
-  private final PairRepository pairRepository;
-  private final ExchangeAccountRepository exchangeAccountRepository;
   private final BalanceRepository balanceRepository;
   private final MetaIntegrityService metaIntegrityService;
   private final OrdersIntegrityService ordersIntegrityService;
@@ -41,7 +37,7 @@ public class SignalValidatorImpl implements SignalValidator {
 
   @Override
   public StepResult validateIntegrity(SignalContext ctx) {
-    String sigId = ctx.getDto().getMeta() != null ? ctx.getDto().getMeta().getSignalId() : "n/a";
+    String sigId = (ctx.getDto().getMeta() != null) ? ctx.getDto().getMeta().getSignalId() : "n/a";
 
     StepResult metaRes = metaIntegrityService.validate(ctx.getDto().getMeta());
     if (!metaRes.isOk()) {
@@ -65,58 +61,81 @@ public class SignalValidatorImpl implements SignalValidator {
     if (dto.getMeta() == null) {
       Rejection rej =
           Rejection.builder()
-              .code(RejectCode.INVALID_INPUT)
+              .code(RejectCode.INTEGRITY_MISSING_META)
               .message("Missing meta")
               .phase(ValidationPhase.PHASE1_FRESHNESS)
               .validator("SignalValidator")
               .occurredAt(clock.instant())
               .build();
-      log.warn("Freshness invalid: signalId=n/a, reason=missing_meta");
+      log.warn("Freshness invalid: missing meta");
       return StepResult.fail(rej);
     }
 
     String sigId = dto.getMeta().getSignalId();
-    java.time.Instant createdAt = dto.getMeta().getCreatedAt();
+    Instant createdAt = dto.getMeta().getCreatedAt();
     Long ttlMs = dto.getMeta().getTtlMs();
+    Long maxLatencyMs = dto.getMeta().getMaxLatencyMs();
 
-    if (createdAt == null || ttlMs == null) {
+    if (createdAt == null || ttlMs == null || ttlMs <= 0) {
       Rejection rej =
           Rejection.builder()
-              .code(RejectCode.INVALID_INPUT)
-              .message("Missing createdAt or ttlMs in meta")
+              .code(RejectCode.INTEGRITY_MISSING_FIELD)
+              .message("Missing/invalid createdAt or ttlMs")
               .phase(ValidationPhase.PHASE1_FRESHNESS)
               .validator("SignalValidator")
               .occurredAt(clock.instant())
               .detail("signalId", sigId)
               .build();
-      log.warn("Freshness invalid: signalId={}, reason=missing_fields", sigId);
+      log.warn("Freshness invalid: signalId={}, missing/invalid fields", sigId);
       return StepResult.fail(rej);
     }
 
-    long age = java.time.Duration.between(createdAt, clock.instant()).toMillis();
-    if (age > ttlMs) {
+    long ageMs = Duration.between(createdAt, clock.instant()).toMillis();
+    if (ageMs > ttlMs) {
       Rejection rej =
           Rejection.builder()
-              .code(RejectCode.INVALID_INPUT)
+              .code(RejectCode.STALE)
               .message("Signal expired: age_ms > ttl_ms")
               .phase(ValidationPhase.PHASE1_FRESHNESS)
               .validator("SignalValidator")
               .occurredAt(clock.instant())
               .detail("signalId", sigId)
-              .detail("age_ms", age)
+              .detail("age_ms", ageMs)
               .detail("ttl_ms", ttlMs)
               .build();
-      log.warn("Freshness expired: signalId={}, ageMs={}, ttlMs={}", sigId, age, ttlMs);
+      log.warn("Freshness expired: signalId={}, ageMs={}, ttlMs={}", sigId, ageMs, ttlMs);
       return StepResult.fail(rej);
     }
 
-    log.info("Freshness ok: signalId={}, ageMs={}, ttlMs={}", sigId, age, ttlMs);
+    if (maxLatencyMs != null && maxLatencyMs > 0 && ageMs > maxLatencyMs) {
+      Rejection rej =
+          Rejection.builder()
+              .code(RejectCode.STALE)
+              .message("Latency guard failed: age_ms > max_latency_ms")
+              .phase(ValidationPhase.PHASE1_FRESHNESS)
+              .validator("SignalValidator")
+              .occurredAt(clock.instant())
+              .detail("signalId", sigId)
+              .detail("age_ms", ageMs)
+              .detail("max_latency_ms", maxLatencyMs)
+              .build();
+      log.warn(
+          "Freshness latency fail: signalId={}, ageMs={}, maxLatencyMs={}",
+          sigId,
+          ageMs,
+          maxLatencyMs);
+      return StepResult.fail(rej);
+    }
+
+    log.info("Freshness ok: signalId={}, ageMs={}, ttlMs={}", sigId, ageMs, ttlMs);
     return StepResult.ok();
   }
 
   @Override
   public BalanceValidationReportDto validateBalance(SignalContext ctx) {
-    String sigId = ctx.getDto().getMeta() != null ? ctx.getDto().getMeta().getSignalId() : "n/a";
+    TradeSignalDto dto = ctx.getDto();
+    String sigId = (dto.getMeta() != null) ? dto.getMeta().getSignalId() : "n/a";
+
     List<ResolvedLegDto> resolved = ctx.getResolvedLegs();
     if (resolved == null || resolved.size() != 2) {
       Rejection rej =
@@ -127,9 +146,10 @@ public class SignalValidatorImpl implements SignalValidator {
               .validator("SignalValidator")
               .occurredAt(clock.instant())
               .detail("signalId", sigId)
+              .detail("legs", resolved == null ? 0 : resolved.size())
               .build();
       log.warn(
-          "Balance validation guard: signalId={}, resolvedLegs={}",
+          "balance guard: signalId={}, resolvedLegs={}",
           sigId,
           resolved == null ? 0 : resolved.size());
       return BalanceValidationReportDto.builder().result(StepResult.fail(rej)).build();
@@ -179,42 +199,18 @@ public class SignalValidatorImpl implements SignalValidator {
                 .detail("signalId", sigId)
                 .build();
         log.warn(
-            "Balance insufficient: signalId={}, accountId={}, currencyId={}, required={}, available={}",
+            "balance insufficient: signalId={}, {}, required={}, available={}",
             sigId,
-            key.getAccountId(),
-            key.getCurrencyId(),
+            key,
             need,
             available);
         return BalanceValidationReportDto.builder().result(StepResult.fail(rej)).build();
       }
     }
 
-    ExecutionPlanDto.ExecutionPlanDtoBuilder pb = ExecutionPlanDto.builder();
-    for (ResolvedLegDto rl : resolved) {
-      ExecutionLegPlanDto leg =
-          ExecutionLegPlanDto.builder()
-              .index(rl.getIndex())
-              .exchangeId(rl.getExchangeId())
-              .exchangeAccountId(rl.getExchangeAccountId())
-              .pairId(rl.getPairId())
-              .baseCurrencyId(rl.getBaseCurrencyId())
-              .quoteCurrencyId(rl.getQuoteCurrencyId())
-              .spendCurrencyId(rl.getSpendCurrencyId())
-              .receiveCurrencyId(rl.getReceiveCurrencyId())
-              .exchangeName(rl.getExchangeName())
-              .marketSymbol(rl.getMarketSymbol())
-              .side(rl.getSide())
-              .reqQty(rl.getQty())
-              .price(rl.getPrice())
-              .requiredSpend(rl.getRequiredSpend())
-              .execQty(rl.getQty())
-              .build();
-      pb.leg(leg);
-    }
-
-    ExecutionPlanDto plan = pb.build();
+    ExecutionPlanDto plan = buildPlan(resolved);
     log.info(
-        "Balance ok: signalId={}, legs={}, buckets={}",
+        "balance ok: signalId={}, legs={}, buckets={}",
         sigId,
         resolved.size(),
         bucketAmounts.size());
@@ -225,7 +221,7 @@ public class SignalValidatorImpl implements SignalValidator {
         .build();
   }
 
-  private static ExecutionPlanDto buildPlan(List<ResolvedLegDto> resolved) {
+  private ExecutionPlanDto buildPlan(List<ResolvedLegDto> resolved) {
     ExecutionPlanDto.ExecutionPlanDtoBuilder pb = ExecutionPlanDto.builder();
     for (ResolvedLegDto rl : resolved) {
       ExecutionLegPlanDto leg =
@@ -251,7 +247,7 @@ public class SignalValidatorImpl implements SignalValidator {
     return pb.build();
   }
 
-  private static BigDecimal nz(BigDecimal v) {
+  private BigDecimal nz(BigDecimal v) {
     return v != null ? v : BigDecimal.ZERO;
   }
 }

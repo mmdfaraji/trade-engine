@@ -12,5 +12,13 @@ public enum RejectCode {
   TRANSIENT_UPSTREAM, // temporary dependency issue (market data / fees / etc.)
   INTERNAL_ERROR, // unexpected internal error
   REFERENCE_NOT_FOUND,
-  INVALID_INPUT
+  INVALID_INPUT,
+  // more precise (optional but recommended)
+  INTEGRITY_MISSING_META,
+  INTEGRITY_MISSING_FIELD,
+  INTEGRITY_INVALID_LEG_COUNT,
+  INTEGRITY_INVALID_VALUE,
+  REFERENCE_EXCHANGE_NOT_FOUND,
+  REFERENCE_PAIR_NOT_FOUND,
+  REFERENCE_ACCOUNT_NOT_FOUND
 }

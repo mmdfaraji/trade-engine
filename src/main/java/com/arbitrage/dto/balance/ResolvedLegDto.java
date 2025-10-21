@@ -19,11 +19,11 @@ public class ResolvedLegDto {
   private final Long pairId;
   private final Long baseCurrencyId;
   private final Long quoteCurrencyId;
-  private final Long spendCurrencyId;
-  private final Long receiveCurrencyId;
+  private final Long spendCurrencyId; // BUY -> quote, SELL -> base
+  private final Long receiveCurrencyId; // BUY -> base,  SELL -> quote
   private final String marketSymbol;
   private final OrderSide side;
-  private final BigDecimal qty;
+  private final BigDecimal qty; // base quantity
   private final BigDecimal price;
-  private final BigDecimal requiredSpend;
+  private final BigDecimal requiredSpend; // BUY: qty*price, SELL: qty
 }

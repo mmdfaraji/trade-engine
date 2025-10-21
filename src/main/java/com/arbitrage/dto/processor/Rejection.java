@@ -6,20 +6,29 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
 import java.util.Map;
 import lombok.Builder;
+import lombok.Getter;
 import lombok.Singular;
-import lombok.Value;
 
-@Value
+/**
+ * Immutable rejection descriptor used by StepResult and audit events. Use builder
+ * with @Singular("detail") to add details:
+ *
+ * <p>Rejection r = Rejection.builder() .code(RejectCode.STALE) .message("Signal expired")
+ * .phase(ValidationPhase.PHASE1_FRESHNESS) .validator("SignalValidator")
+ * .occurredAt(clock.instant()) .detail("age_ms", age) .detail("ttl_ms", ttl) .build();
+ */
+@Getter
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class Rejection {
-  RejectCode code; // canonical machine-friendly code
-  String message; // short human-readable reason (for logs)
-  ValidationPhase phase; // where it failed in the pipeline
-  String validator; // simple class name or step id (e.g., "FreshnessValidator")
-  Integer legIndex; // optional: leg index if the failure is leg-specific
-  Instant occurredAt; // when the rejection was produced (UTC)
+  private final RejectCode code;
+  private final String message;
+
+  private final ValidationPhase phase; // which phase failed
+  private final String validator; // component name that produced the rejection
+
+  private final Instant occurredAt; // wall clock at the time of rejection
 
   @Singular("detail")
-  Map<String, Object> details; // structured context for analysis (key/value)
+  private final Map<String, Object> details; // structured extras for diagnostics (safe to JSON)
 }

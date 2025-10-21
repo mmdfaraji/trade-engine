@@ -22,7 +22,7 @@ public class MetaIntegrityServiceImpl implements MetaIntegrityService {
     if (meta == null) {
       Rejection rej =
           Rejection.builder()
-              .code(RejectCode.INVALID_INPUT)
+              .code(RejectCode.INTEGRITY_MISSING_META)
               .message("Missing meta")
               .phase(ValidationPhase.PHASE0_INTEGRITY)
               .validator("MetaIntegrityService")
@@ -32,69 +32,36 @@ public class MetaIntegrityServiceImpl implements MetaIntegrityService {
       return StepResult.fail(rej);
     }
     if (isBlank(meta.getSignalId())) {
-      Rejection rej =
-          Rejection.builder()
-              .code(RejectCode.INVALID_INPUT)
-              .message("Missing meta.signalId")
-              .phase(ValidationPhase.PHASE0_INTEGRITY)
-              .validator("MetaIntegrityService")
-              .occurredAt(clock.instant())
-              .build();
-      log.warn("Integrity failed: missing meta.signalId");
-      return StepResult.fail(rej);
+      return fail("Missing meta.signalId", RejectCode.INTEGRITY_MISSING_FIELD);
     }
     if (meta.getCreatedAt() == null) {
-      Rejection rej =
-          Rejection.builder()
-              .code(RejectCode.INVALID_INPUT)
-              .message("Missing meta.createdAt")
-              .phase(ValidationPhase.PHASE0_INTEGRITY)
-              .validator("MetaIntegrityService")
-              .occurredAt(clock.instant())
-              .build();
-      log.warn("Integrity failed: signalId={}, missing meta.createdAt", meta.getSignalId());
-      return StepResult.fail(rej);
+      return fail("Missing meta.createdAt", RejectCode.INTEGRITY_MISSING_FIELD);
     }
     if (meta.getTtlMs() == null || meta.getTtlMs() <= 0) {
-      Rejection rej =
-          Rejection.builder()
-              .code(RejectCode.INVALID_INPUT)
-              .message("Missing/invalid meta.ttlMs")
-              .phase(ValidationPhase.PHASE0_INTEGRITY)
-              .validator("MetaIntegrityService")
-              .occurredAt(clock.instant())
-              .build();
-      log.warn("Integrity failed: signalId={}, missing/invalid meta.ttlMs", meta.getSignalId());
-      return StepResult.fail(rej);
+      return fail("Missing/invalid meta.ttlMs", RejectCode.INTEGRITY_INVALID_VALUE);
     }
     if (isBlank(meta.getPair())) {
-      Rejection rej =
-          Rejection.builder()
-              .code(RejectCode.INVALID_INPUT)
-              .message("Missing meta.pair")
-              .phase(ValidationPhase.PHASE0_INTEGRITY)
-              .validator("MetaIntegrityService")
-              .occurredAt(clock.instant())
-              .build();
-      log.warn("Integrity failed: signalId={}, missing meta.pair", meta.getSignalId());
-      return StepResult.fail(rej);
+      return fail("Missing meta.pair", RejectCode.INTEGRITY_MISSING_FIELD);
     }
-    // maxLatencyMs is optional; if present it must be > 0
     if (meta.getMaxLatencyMs() != null && meta.getMaxLatencyMs() <= 0) {
-      Rejection rej =
-          Rejection.builder()
-              .code(RejectCode.INVALID_INPUT)
-              .message("Invalid meta.maxLatencyMs")
-              .phase(ValidationPhase.PHASE0_INTEGRITY)
-              .validator("MetaIntegrityService")
-              .occurredAt(clock.instant())
-              .build();
-      log.warn("Integrity failed: signalId={}, invalid meta.maxLatencyMs", meta.getSignalId());
-      return StepResult.fail(rej);
+      return fail("Invalid meta.maxLatencyMs", RejectCode.INTEGRITY_INVALID_VALUE);
     }
 
     log.info("Meta integrity ok: signalId={}, pair={}", meta.getSignalId(), meta.getPair());
     return StepResult.ok();
+  }
+
+  private StepResult fail(String msg, RejectCode code) {
+    Rejection rej =
+        Rejection.builder()
+            .code(code)
+            .message(msg)
+            .phase(ValidationPhase.PHASE0_INTEGRITY)
+            .validator("MetaIntegrityService")
+            .occurredAt(clock.instant())
+            .build();
+    log.warn("Integrity failed: {}", msg);
+    return StepResult.fail(rej);
   }
 
   private static boolean isBlank(String s) {

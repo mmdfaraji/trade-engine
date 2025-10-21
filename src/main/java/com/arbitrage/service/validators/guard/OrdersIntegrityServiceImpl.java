@@ -36,38 +36,53 @@ public class OrdersIntegrityServiceImpl implements OrdersIntegrityService {
   public StepResult validateAndResolve(
       List<OrderInstructionDto> orders, String signalIdForLog, SignalContext ctx) {
     if (orders == null || orders.size() != 2) {
-      return fail("Leg count must be exactly 2", signalIdForLog, -1);
+      return fail(
+          "Leg count must be exactly 2",
+          RejectCode.INTEGRITY_INVALID_LEG_COUNT,
+          signalIdForLog,
+          -1);
     }
 
     List<ResolvedLegDto> resolved = new ArrayList<>(2);
     for (int i = 0; i < orders.size(); i++) {
       OrderInstructionDto leg = orders.get(i);
 
-      if (isBlank(leg.getExchangeName())) return fail("Missing exchangeName", signalIdForLog, i);
-      if (isBlank(leg.getPairName())) return fail("Missing pairName", signalIdForLog, i);
-      if (leg.getSide() == null) return fail("Missing side", signalIdForLog, i);
+      if (isBlank(leg.getExchangeName()))
+        return fail("Missing exchangeName", RejectCode.INTEGRITY_MISSING_FIELD, signalIdForLog, i);
+      if (isBlank(leg.getPairName()))
+        return fail("Missing pairName", RejectCode.INTEGRITY_MISSING_FIELD, signalIdForLog, i);
+      if (leg.getSide() == null)
+        return fail("Missing side", RejectCode.INTEGRITY_MISSING_FIELD, signalIdForLog, i);
 
       BigDecimal price = leg.getPriceAsBigDecimal();
       if (price == null || price.signum() <= 0)
-        return fail("Missing/invalid price", signalIdForLog, i);
+        return fail("Missing/invalid price", RejectCode.INTEGRITY_INVALID_VALUE, signalIdForLog, i);
 
       BigDecimal baseQty = leg.getBaseAmountAsBigDecimal();
       if (baseQty == null || baseQty.signum() <= 0)
-        return fail("Missing/invalid baseAmount", signalIdForLog, i);
+        return fail(
+            "Missing/invalid baseAmount", RejectCode.INTEGRITY_INVALID_VALUE, signalIdForLog, i);
 
       Exchange ex =
           exchangeRepository.findByNameEqualsIgnoreCase(leg.getExchangeName()).orElse(null);
-      if (ex == null) return fail("Unknown exchange", signalIdForLog, i);
+      if (ex == null)
+        return fail("Unknown exchange", RejectCode.REFERENCE_EXCHANGE_NOT_FOUND, signalIdForLog, i);
 
       Pair pair = pairRepository.findBySymbolEqualsIgnoreCase(leg.getPairName()).orElse(null);
-      if (pair == null) return fail("Unknown pair", signalIdForLog, i);
+      if (pair == null)
+        return fail("Unknown pair", RejectCode.REFERENCE_PAIR_NOT_FOUND, signalIdForLog, i);
 
       Long accountId =
           exchangeAccountRepository
               .findFirstByExchange_IdAndIsPrimaryTrue(ex.getId())
               .map(ExchangeAccount::getId)
               .orElse(null);
-      if (accountId == null) return fail("No primary account for exchange", signalIdForLog, i);
+      if (accountId == null)
+        return fail(
+            "No primary account for exchange",
+            RejectCode.REFERENCE_ACCOUNT_NOT_FOUND,
+            signalIdForLog,
+            i);
 
       OrderSide side = leg.getSide();
       Long baseId = pair.getBaseCurrency().getId();
@@ -101,10 +116,10 @@ public class OrdersIntegrityServiceImpl implements OrdersIntegrityService {
     return StepResult.ok();
   }
 
-  private StepResult fail(String msg, String sigId, int legIndex) {
+  private StepResult fail(String msg, RejectCode code, String sigId, int legIndex) {
     Rejection rej =
         Rejection.builder()
-            .code(RejectCode.INVALID_INPUT)
+            .code(code)
             .message(msg)
             .phase(ValidationPhase.PHASE0_INTEGRITY)
             .validator("OrdersIntegrityService")
@@ -112,7 +127,12 @@ public class OrdersIntegrityServiceImpl implements OrdersIntegrityService {
             .detail("signalId", sigId)
             .detail("legIndex", legIndex)
             .build();
-    log.warn("Integrity failed: signalId={}, legIndex={}, reason={}", sigId, legIndex, msg);
+    log.warn(
+        "Integrity failed: signalId={}, legIndex={}, reason={}, code={}",
+        sigId,
+        legIndex,
+        msg,
+        code);
     return StepResult.fail(rej);
   }
 

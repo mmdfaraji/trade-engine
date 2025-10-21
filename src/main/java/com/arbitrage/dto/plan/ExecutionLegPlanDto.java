@@ -3,32 +3,30 @@ package com.arbitrage.dto.plan;
 import com.arbitrage.enums.OrderSide;
 import java.math.BigDecimal;
 import lombok.Builder;
-import lombok.Value;
+import lombok.Getter;
 
 /**
  * Execution-ready leg plan (phase-2 output). It contains resolved identifiers and computed amounts.
  */
-@Value
+@Getter
 @Builder
 public class ExecutionLegPlanDto {
-  int index;
+  private final int index;
+  private final Long exchangeId;
+  private final Long exchangeAccountId;
+  private final Long pairId;
+  private final Long baseCurrencyId;
+  private final Long quoteCurrencyId;
+  private final Long spendCurrencyId;
+  private final Long receiveCurrencyId;
 
-  Long exchangeId;
-  Long exchangeAccountId;
-  Long pairId;
+  private final String exchangeName;
+  private final String marketSymbol;
 
-  Long baseCurrencyId;
-  Long quoteCurrencyId;
-  Long spendCurrencyId; // BUY->quote, SELL->base
-  Long receiveCurrencyId; // BUY->base,  SELL->quote
-
-  String exchangeName;
-  String marketSymbol; // pairs.symbol
-
-  OrderSide side;
-  BigDecimal reqQty; // requested base qty
-  BigDecimal price;
-
-  BigDecimal requiredSpend; // BUY: qty*price (quote), SELL: qty (base)
-  BigDecimal execQty; // phase-2: equals reqQty if reserved; else 0
+  private final OrderSide side;
+  private final BigDecimal reqQty; // requested base qty
+  private final BigDecimal price;
+  private final BigDecimal requiredSpend; // BUY: reqQty*price ; SELL: reqQty
+  private final BigDecimal
+      execQty; // here equals reqQty (no reservation in balance validation phase)
 }
