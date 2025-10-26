@@ -17,4 +17,8 @@ public class BalanceValidationReportDto {
   private final StepResult result;
   private final ExecutionPlanDto plan;
   private final Map<BucketKeyDto, BigDecimal> bucketAmounts;
+
+  // sizing diagnostics
+  private final boolean scaled;          // true if alpha < 1
+  private final BigDecimal scaleRatio;   // alpha
 }
