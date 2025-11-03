@@ -1,6 +1,8 @@
 package com.arbitrage.service.api;
 
 import com.arbitrage.dto.balance.BalanceValidationReportDto;
+import com.arbitrage.dto.market.MarketValidationReportDto;
+import com.arbitrage.dto.plan.ExecutionPlanDto;
 import com.arbitrage.dto.processor.SignalContext;
 import com.arbitrage.dto.processor.StepResult;
 
@@ -34,7 +36,7 @@ public interface SignalValidator {
   BalanceValidationReportDto validateBalance(SignalContext ctx);
 
   // Future phases:
-  // StepResult validateMarketRules(SignalContext ctx, ExecutionPlanDto plan);
+  MarketValidationReportDto validateMarket(SignalContext ctx, ExecutionPlanDto planFromBalance);
   // StepResult validateLiquidity(SignalContext ctx, ExecutionPlanDto plan);
   // StepResult validatePnl(SignalContext ctx, ExecutionPlanDto plan);
   // StepResult validateRisk(SignalContext ctx, ExecutionPlanDto plan);

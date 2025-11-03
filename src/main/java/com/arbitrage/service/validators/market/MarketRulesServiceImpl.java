@@ -136,7 +136,7 @@ public class MarketRulesServiceImpl implements MarketRulesService {
               .build();
       log.error(
           "market price guard failed: signalId={}, err={}",
-          (ctx.getSavedSignalId() != null ? ctx.getSavedSignalId() : "n/a"),
+          ctx.getSavedSignalId(),
           e.getMessage(),
           e);
 

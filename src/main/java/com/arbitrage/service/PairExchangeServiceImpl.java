@@ -26,14 +26,7 @@ public class PairExchangeServiceImpl implements PairExchangeService {
       exIds.add(l.getExchangeId());
       pairIds.add(l.getPairId());
     }
-    List<PairExchange> rows =
-        pairExchangeRepository.findByExchange_IdInAndPair_IdIn(exIds, pairIds);
-
-    Map<MarketPairKeyDto, PairExchange> map = new HashMap<>();
-    for (PairExchange pe : rows) {
-      map.put(new MarketPairKeyDto(pe.getExchange().getId(), pe.getPair().getId()), pe);
-    }
-    return map;
+    return getMarketPairKeyDtoPairExchangeMap(exIds, pairIds);
   }
 
   @Override
@@ -47,6 +40,17 @@ public class PairExchangeServiceImpl implements PairExchangeService {
       exIds.add(k.getExchangeId());
       pairIds.add(k.getPairId());
     }
+    return getMarketPairKeyDtoPairExchangeMap(exIds, pairIds);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
+  public Optional<PairExchange> findOne(Long exchangeId, Long pairId) {
+    return pairExchangeRepository.findByExchange_IdAndPair_Id(exchangeId, pairId);
+  }
+
+  private Map<MarketPairKeyDto, PairExchange> getMarketPairKeyDtoPairExchangeMap(
+      Set<Long> exIds, Set<Long> pairIds) {
     List<PairExchange> rows =
         pairExchangeRepository.findByExchange_IdInAndPair_IdIn(exIds, pairIds);
 
@@ -55,11 +59,5 @@ public class PairExchangeServiceImpl implements PairExchangeService {
       map.put(new MarketPairKeyDto(pe.getExchange().getId(), pe.getPair().getId()), pe);
     }
     return map;
-  }
-
-  @Override
-  @Transactional(Transactional.TxType.SUPPORTS)
-  public Optional<PairExchange> findOne(Long exchangeId, Long pairId) {
-    return pairExchangeRepository.findByExchange_IdAndPair_Id(exchangeId, pairId);
   }
 }

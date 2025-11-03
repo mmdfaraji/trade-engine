@@ -1,6 +1,7 @@
 package com.arbitrage.service;
 
 import com.arbitrage.dto.balance.BalanceValidationReportDto;
+import com.arbitrage.dto.market.MarketValidationReportDto;
 import com.arbitrage.dto.processor.PersistSignalResult;
 import com.arbitrage.dto.processor.ProcessResult;
 import com.arbitrage.dto.processor.SignalContext;
@@ -96,6 +97,17 @@ public class DefaultSignalProcessor implements SignalProcessor {
 
     signalEventService.recordAccepted(savedId);
     log.info("accepted: signalId={}", savedId);
+
+    MarketValidationReportDto marketReport =
+        signalValidator.validateMarket(ctx, balanceReport.getPlan());
+    java.util.Optional<ProcessResult> marketDecision =
+        decisionService.handle(ctx, marketReport.getResult(), ValidationPhase.PHASE3_MARKET);
+    if (marketDecision.isPresent()) {
+      return marketDecision.get();
+    }
+    signalEventService.recordOk(savedId, ValidationPhase.PHASE3_MARKET);
+    log.info("market checks passed: signalId={}", savedId);
+
     return ProcessResult.accepted(savedId);
   }
   // end line of new codes
